@@ -1,8 +1,43 @@
+/* Colors and fonts of the style guide (docs/charte.md). Light mode only for now. */
 :root {
-  font-family: system-ui, 'Segoe UI', sans-serif;
-  color-scheme: light dark;
+  --color-background: #f1f2f3;
+  --color-card: #ffffff;
+  --color-text: #111214; /* also actions, selection and progress */
+  --color-text-secondary: #5d6066;
+  --color-line: #e3e4e6; /* tracks and lines */
+  /* Result colors: always shown with an icon and a word, never alone. */
+  --color-correct: #1f6f50;
+  --color-correct-background: #e6f3ec;
+  --color-review: #8a3409;
+  --color-review-background: #fbeee6;
+
+  --font-text: 'Inter Variable', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', monospace; /* numbers, timer, code */
+
+  color-scheme: light;
+  font-family: var(--font-text);
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-background);
 }
 
 body {
-  margin: 2rem;
+  margin: 16px;
+}
+
+main {
+  background: var(--color-card);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.mono {
+  font-family: var(--font-mono);
 }

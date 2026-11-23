@@ -23,11 +23,12 @@ function App() {
 
   return (
     <main>
-      <h1>Bosh mow</h1>
+      <h1>BOSH MOW</h1>
       {state.kind === 'loading' && <p>Connexion au serveur…</p>}
       {state.kind === 'ok' && (
         <p>
-          Serveur : {state.health.status} — version {state.health.version}
+          Serveur : {state.health.status} — version{' '}
+          <span className="mono">{state.health.version}</span>
         </p>
       )}
       {state.kind === 'error' && <p>Serveur injoignable ({state.message})</p>}
