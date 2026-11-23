@@ -30,6 +30,9 @@ packages = ["backend/bosh_mow"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.ruff]
+src = ["backend"]  # where bosh_mow lives, so its imports sort as first-party
+
 [tool.ruff.lint]
 # E/F: pycodestyle + pyflakes, I: import order, UP: modern syntax,
 # B: likely bugs, ANN: type annotations everywhere.
