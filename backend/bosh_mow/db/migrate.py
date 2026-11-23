@@ -47,6 +47,6 @@ def _migration_files() -> list[tuple[int, Path]]:
     numbers = [number for number, _ in files]
     if numbers != list(range(1, len(files) + 1)):
         raise RuntimeError(
-            f"Migrations must be numbered 1, 2, 3... with no gap: {numbers}"
+            f"Migrations must be numbered 1, 2, 3... (no gap, no duplicate): {numbers}"
         )
     return files
