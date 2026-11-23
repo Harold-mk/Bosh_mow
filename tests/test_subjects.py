@@ -9,12 +9,14 @@ from bosh_mow.subjects.repository import (
     Chapter,
     ChapterSource,
     Document,
+    Heading,
     PageContent,
     Resource,
     SubjectSummary,
     activate_subject,
     add_resource,
     create_draft_subject,
+    get_document,
     get_subject,
     list_subjects,
 )
@@ -52,6 +54,17 @@ def test_imported_file_keeps_its_pages_in_order(db: sqlite3.Connection) -> None:
         (pdf,),
     ).fetchall()
     assert pages == [(1, "Intro", 0), (2, "", 1), (3, "Fin", 0)]
+
+
+def test_imported_file_is_read_back_as_it_was_imported(db: sqlite3.Connection) -> None:
+    subject_id = create_draft_subject(db, "Économétrie", EXAM)
+    pages = [PageContent("# Variance\ntexte", image_count=1), PageContent("## Exemple")]
+    headings = [Heading(1, "Variance", 1), Heading(2, "Exemple", 2)]
+    document = Document("markdown", pages, headings, "structure")
+
+    resource_id = add_resource(db, subject_id, "notes.md", document)
+
+    assert get_document(db, resource_id) == document
 
 
 def test_r2_activated_subject_has_its_objectives_and_chapters(

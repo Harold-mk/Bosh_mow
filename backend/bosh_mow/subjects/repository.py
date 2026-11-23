@@ -142,6 +142,32 @@ def add_resource(
     return resource_id
 
 
+def get_document(connection: sqlite3.Connection, resource_id: int) -> Document:
+    """An imported file as it was read: its pages and its outline."""
+    row = connection.execute(
+        "SELECT kind, outline FROM resource WHERE id = ?", (resource_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"File {resource_id} does not exist.")
+    kind, outline = row
+    pages = [
+        PageContent(text, image_count)
+        for text, image_count in connection.execute(
+            "SELECT text, image_count FROM page WHERE resource_id = ? ORDER BY number",
+            (resource_id,),
+        )
+    ]
+    headings = [
+        Heading(level, title, page)
+        for level, title, page in connection.execute(
+            "SELECT level, title, page FROM heading WHERE resource_id = ?"
+            " ORDER BY position",
+            (resource_id,),
+        )
+    ]
+    return Document(kind, pages, headings, outline)
+
+
 def delete_resource(connection: sqlite3.Connection, resource_id: int) -> None:
     """Forget an imported file, with its pages and its outline."""
     with connection:
