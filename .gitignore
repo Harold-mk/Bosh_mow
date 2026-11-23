@@ -4,8 +4,10 @@ data/
 logs/
 .env
 
-# Private instructions for Claude Code
+# Private: Claude Code instructions and settings, design documents (for now)
 CLAUDE.md
+.claude/
+docs/
 
 # Python
 .venv/
