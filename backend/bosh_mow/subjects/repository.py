@@ -12,16 +12,41 @@ from typing import Literal
 
 type Kind = Literal["pdf", "markdown"]
 type Role = Literal["core", "secondary"]
+# Where the outline of a file comes from: PDF bookmarks or Markdown # and ## titles
+# ("structure"), titles guessed from their size or weight ("fonts"), or nothing.
+type Outline = Literal["structure", "fonts", "none"]
 
 MAX_OBJECTIVES = 5  # R2
 
 
 @dataclass(frozen=True)
 class PageContent:
-    """Text of a PDF page or of a Markdown section, with its number of images."""
+    """Text of a PDF page or of a Markdown section, and its number of images.
+
+    For a PDF, diagrams drawn as vectors count as images.
+    """
 
     text: str
     image_count: int = 0
+
+
+@dataclass(frozen=True)
+class Heading:
+    """A title of a file's outline; `page` is a PDF page or a Markdown section."""
+
+    level: int
+    title: str
+    page: int
+
+
+@dataclass(frozen=True)
+class Document:
+    """An imported file once read: its pages (numbered from 1) and its outline."""
+
+    kind: Kind
+    pages: list[PageContent]
+    headings: list[Heading]
+    outline: Outline
 
 
 @dataclass(frozen=True)
@@ -89,24 +114,38 @@ def add_resource(
     connection: sqlite3.Connection,
     subject_id: int,
     file_name: str,
-    kind: Kind,
-    pages: Sequence[PageContent],
+    document: Document,
 ) -> int:
-    """Record an imported file with the text of its pages (numbered from 1)."""
+    """Record an imported file with its pages and its outline; return its id."""
     with connection:
         resource_id = connection.execute(
-            "INSERT INTO resource (subject_id, file_name, kind) VALUES (?, ?, ?)",
-            (subject_id, file_name, kind),
+            "INSERT INTO resource (subject_id, file_name, kind, outline)"
+            " VALUES (?, ?, ?, ?)",
+            (subject_id, file_name, document.kind, document.outline),
         ).lastrowid
         connection.executemany(
             "INSERT INTO page (resource_id, number, text, image_count)"
             " VALUES (?, ?, ?, ?)",
             [
                 (resource_id, number, page.text, page.image_count)
-                for number, page in enumerate(pages, start=1)
+                for number, page in enumerate(document.pages, start=1)
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO heading (resource_id, position, level, title, page)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [
+                (resource_id, position, heading.level, heading.title, heading.page)
+                for position, heading in enumerate(document.headings, start=1)
             ],
         )
     return resource_id
+
+
+def delete_resource(connection: sqlite3.Connection, resource_id: int) -> None:
+    """Forget an imported file, with its pages and its outline."""
+    with connection:
+        connection.execute("DELETE FROM resource WHERE id = ?", (resource_id,))
 
 
 def activate_subject(

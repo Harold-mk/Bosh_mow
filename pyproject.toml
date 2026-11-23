@@ -15,6 +15,7 @@ dependencies = [
     "uvicorn",
     "pywebview",
     "pydantic",
+    "pymupdf",
 ]
 
 [project.optional-dependencies]

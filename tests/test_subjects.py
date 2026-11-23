@@ -8,6 +8,7 @@ import pytest
 from bosh_mow.subjects.repository import (
     Chapter,
     ChapterSource,
+    Document,
     PageContent,
     Resource,
     SubjectSummary,
@@ -25,7 +26,8 @@ def make_draft(db: sqlite3.Connection) -> tuple[int, int]:
     """A draft subject with a 3-page PDF; returns the subject and file ids."""
     subject_id = create_draft_subject(db, "Économétrie", EXAM)
     pages = [PageContent("Intro"), PageContent("", image_count=1), PageContent("Fin")]
-    return subject_id, add_resource(db, subject_id, "cours.pdf", "pdf", pages)
+    document = Document("pdf", pages, [], "none")
+    return subject_id, add_resource(db, subject_id, "cours.pdf", document)
 
 
 def test_draft_subject_is_hidden_from_the_list(db: sqlite3.Connection) -> None:
@@ -74,7 +76,8 @@ def test_r2_activated_subject_has_its_objectives_and_chapters(
 
 def test_chapter_can_combine_several_files(db: sqlite3.Connection) -> None:
     subject_id, pdf = make_draft(db)
-    notes = add_resource(db, subject_id, "notes.md", "markdown", [PageContent("# TD")])
+    markdown = Document("markdown", [PageContent("# TD")], [], "none")
+    notes = add_resource(db, subject_id, "notes.md", markdown)
     sources = [ChapterSource(pdf, 1, 3), ChapterSource(notes, 1, 1)]
     chapter = Chapter("Régression", "core", sources, [1])
 
@@ -147,4 +150,4 @@ def test_subject_is_activated_only_once(db: sqlite3.Connection) -> None:
 
 def test_r1_every_file_belongs_to_a_subject(db: sqlite3.Connection) -> None:
     with pytest.raises(sqlite3.IntegrityError):
-        add_resource(db, 999, "cours.pdf", "pdf", [])
+        add_resource(db, 999, "cours.pdf", Document("pdf", [], [], "none"))

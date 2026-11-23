@@ -59,3 +59,6 @@ ruff check . ; ruff format .
 ## License
 
 [MIT](LICENSE) © Harold Mokam
+
+PDF files are read with [PyMuPDF](https://pymupdf.readthedocs.io), which is licensed
+under the GNU AGPL-3.0 (or a commercial license from Artifex).
