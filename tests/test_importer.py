@@ -197,14 +197,15 @@ def test_import_keeps_an_untouched_copy_of_the_file(
     subject_id = create_draft_subject(db, "Statistiques", date(2027, 1, 15))
     content = new_pdf("Page 1", "Page 2").tobytes()
 
-    resource_id = import_file(
+    resource = import_file(
         db, tmp_path / "resources", subject_id, "Cours de stats.pdf", content
     )
 
-    assert (tmp_path / "resources" / f"{resource_id}.pdf").read_bytes() == content
+    assert resource == Resource(resource.id, "Cours de stats.pdf", "pdf", 2)
+    assert (tmp_path / "resources" / f"{resource.id}.pdf").read_bytes() == content
     subject = get_subject(db, subject_id)
     assert subject is not None
-    assert subject.resources == [Resource(resource_id, "Cours de stats.pdf", "pdf", 2)]
+    assert subject.resources == [resource]
 
 
 def test_import_reads_markdown_and_keeps_its_outline(
@@ -213,13 +214,11 @@ def test_import_reads_markdown_and_keeps_its_outline(
     subject_id = create_draft_subject(db, "Statistiques", date(2027, 1, 15))
     content = b"# Variance\nNotes de cours\n"
 
-    resource_id = import_file(
-        db, tmp_path / "resources", subject_id, "notes.md", content
-    )
+    resource = import_file(db, tmp_path / "resources", subject_id, "notes.md", content)
 
-    assert (tmp_path / "resources" / f"{resource_id}.md").read_bytes() == content
+    assert (tmp_path / "resources" / f"{resource.id}.md").read_bytes() == content
     headings = db.execute(
-        "SELECT level, title, page FROM heading WHERE resource_id = ?", (resource_id,)
+        "SELECT level, title, page FROM heading WHERE resource_id = ?", (resource.id,)
     ).fetchall()
     assert headings == [(1, "Variance", 1)]
 

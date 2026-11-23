@@ -5,18 +5,25 @@ outline of a file when it has one, otherwise its guessed titles, otherwise its t
 whole for a short file and the start of each page for a long one. The answer must keep
 the rules of T1 before the student sees it; it stays a proposal that the student
 corrects (R2, R3).
+
+Claude is asked in a background task; the interface follows its state, then gets the
+proposal in the shape in which the subject is saved.
 """
 
 import re
 import sqlite3
 import unicodedata
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from bosh_mow.ai.gateway import Gateway
 from bosh_mow.ai.schemas import T1Answer
+from bosh_mow.ai.tasks import Handler, add_task, latest_task, retry_now
 from bosh_mow.subjects.repository import (
     MAX_OBJECTIVES,
+    Chapter,
+    ChapterSource,
     Document,
     Resource,
     get_document,
@@ -24,6 +31,7 @@ from bosh_mow.subjects.repository import (
 )
 
 PROMPT = "t1_v1"
+TASK = "t1"  # the kind of the background task that runs propose()
 FULL_TEXT_LIMIT = 50  # pages: a shorter file without structure is sent whole
 PAGE_START_CHARS = 300  # about 75 tokens: 30,000 tokens for 400 pages
 OBJECTIVE_START = re.compile(r"Être capable d(e |'|’)\S")  # R2
@@ -56,6 +64,55 @@ def propose(
         T1Answer,
         check=lambda answer: check_proposal(answer, subject.resources),
     )
+
+
+@dataclass(frozen=True)
+class Proposal:
+    """Objectives, chapters and glossary, as the student reviews and validates them."""
+
+    objectives: list[str]
+    chapters: list[Chapter]
+    glossary: list[str]
+
+
+@dataclass(frozen=True)
+class ProposalState:
+    """Where the proposal for a subject stands."""
+
+    status: str  # pending, running, done or failed
+    error: str | None  # why Claude is awaited, or why the proposal failed
+    proposal: Proposal | None  # once done
+
+
+def request_proposal(connection: sqlite3.Connection, subject_id: int) -> None:
+    """Ask for a proposal in the background; one waiting for Claude is tried at once."""
+    task = latest_task(connection, TASK, subject_id)
+    if task is not None and task.status == "pending":
+        retry_now(connection, task.id)
+    elif task is None or task.status != "running":
+        add_task(connection, TASK, {"subject_id": subject_id}, subject_id)
+
+
+def proposal_state(
+    connection: sqlite3.Connection, subject_id: int
+) -> ProposalState | None:
+    """The state of the last proposal asked for a subject, or None if none was."""
+    task = latest_task(connection, TASK, subject_id)
+    if task is None:
+        return None
+    proposal = None
+    if task.status == "done" and task.result is not None:
+        proposal = _to_proposal(T1Answer.model_validate(task.result))
+    return ProposalState(task.status, task.error, proposal)
+
+
+def proposal_handler(gateway: Gateway) -> Handler:
+    """The background task TASK: propose() for the subject given in its data."""
+
+    def run(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
+        return propose(connection, gateway, data["subject_id"]).model_dump()
+
+    return run
 
 
 def describe_file(resource: Resource, document: Document) -> dict[str, Any]:
@@ -179,6 +236,20 @@ def _check_coverage(answer: T1Answer, files: Sequence[Resource]) -> list[str]:
                 f" of {_name(file)}."
             )
     return problems
+
+
+def _to_proposal(answer: T1Answer) -> Proposal:
+    """Claude's answer, with its chapters in the shape in which they are saved."""
+    chapters = [
+        Chapter(
+            chapter.title,
+            chapter.role,
+            [ChapterSource(s.file, s.first_page, s.last_page) for s in chapter.sources],
+            chapter.objectives,
+        )
+        for chapter in answer.chapters
+    ]
+    return Proposal(answer.objectives, chapters, answer.glossary)
 
 
 def _exists(first: int, last: int, file: Resource) -> bool:

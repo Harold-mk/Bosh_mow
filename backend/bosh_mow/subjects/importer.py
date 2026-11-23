@@ -16,6 +16,7 @@ from bosh_mow.subjects.repository import (
     Heading,
     Kind,
     PageContent,
+    Resource,
     add_resource,
     delete_resource,
 )
@@ -40,11 +41,10 @@ def import_file(
     subject_id: int,
     file_name: str,
     content: bytes,
-) -> int:
+) -> Resource:
     """Read a PDF or Markdown file, record it and keep an untouched copy of it.
 
-    Return the id of the new resource. An unsupported file raises UnsupportedFile
-    and changes nothing.
+    An unsupported file raises UnsupportedFile and changes nothing.
     """
     kind = KINDS.get(Path(file_name).suffix.lower())
     if kind is None:
@@ -59,7 +59,15 @@ def import_file(
     except OSError:
         delete_resource(connection, resource_id)
         raise
-    return resource_id
+    return Resource(resource_id, file_name, kind, len(document.pages))
+
+
+def remove_file(
+    connection: sqlite3.Connection, resources_dir: Path, resource: Resource
+) -> None:
+    """Forget an imported file, and delete its copy."""
+    delete_resource(connection, resource.id)
+    copy_path(resources_dir, resource.id, resource.kind).unlink(missing_ok=True)
 
 
 def copy_path(resources_dir: Path, resource_id: int, kind: Kind) -> Path:

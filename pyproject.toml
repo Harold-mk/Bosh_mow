@@ -16,6 +16,7 @@ dependencies = [
     "pywebview",
     "pydantic",
     "pymupdf",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]

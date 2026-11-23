@@ -66,6 +66,24 @@ def get_task(connection: sqlite3.Connection, task_id: int) -> Task | None:
     return Task(task_id, kind, subject_id, status, attempts, result, error)
 
 
+def latest_task(
+    connection: sqlite3.Connection, kind: str, subject_id: int
+) -> Task | None:
+    """The last task of this kind asked for a subject, or None."""
+    row = connection.execute(
+        "SELECT id FROM ai_task WHERE kind = ? AND subject_id = ?"
+        " ORDER BY id DESC LIMIT 1",
+        (kind, subject_id),
+    ).fetchone()
+    return get_task(connection, row[0]) if row else None
+
+
+def retry_now(connection: sqlite3.Connection, task_id: int) -> None:
+    """Make a task that waits for its engine due at once (e.g. after a login)."""
+    _update(connection, task_id, "not_before = NULL")
+    wake_worker()
+
+
 def run_next_task(
     connection: sqlite3.Connection, handlers: Mapping[str, Handler], now: datetime
 ) -> bool:

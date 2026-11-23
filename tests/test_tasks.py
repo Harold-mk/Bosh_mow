@@ -3,7 +3,7 @@
 import sqlite3
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +12,13 @@ from bosh_mow.ai.tasks import (
     RETRY_DELAY,
     add_task,
     get_task,
+    latest_task,
+    retry_now,
     run_next_task,
     start_worker,
     wake_worker,
 )
+from bosh_mow.subjects.repository import create_draft_subject
 
 NOW = datetime(2026, 11, 23, 18, 0, tzinfo=UTC)
 
@@ -60,6 +63,31 @@ def test_task_waits_while_the_engine_is_unavailable(db: sqlite3.Connection) -> N
     task = get_task(db, task_id)
     assert task is not None
     assert (task.status, task.attempts, task.error) == ("done", 2, None)
+
+
+def test_waiting_task_can_be_tried_again_at_once(db: sqlite3.Connection) -> None:
+    task_id = add_task(db, "echo", {"text": "bonjour"})
+    run_next_task(db, {"echo": unavailable}, NOW)
+    assert not run_next_task(db, {"echo": echo}, NOW)
+
+    retry_now(db, task_id)
+
+    assert run_next_task(db, {"echo": echo}, NOW)
+
+
+def test_latest_task_is_the_last_one_asked_for_the_subject(
+    db: sqlite3.Connection,
+) -> None:
+    subject_id = create_draft_subject(db, "Statistiques", date(2027, 1, 15))
+    add_task(db, "t1", {}, subject_id)
+    last = add_task(db, "t1", {}, subject_id)
+    add_task(db, "echo", {"text": "autre tâche"}, subject_id)
+
+    task = latest_task(db, "t1", subject_id)
+
+    assert task is not None
+    assert task.id == last
+    assert latest_task(db, "t1", subject_id + 1) is None
 
 
 def test_invalid_answer_makes_the_task_fail_and_say_why(db: sqlite3.Connection) -> None:

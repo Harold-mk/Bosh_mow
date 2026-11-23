@@ -153,12 +153,49 @@ def test_chapter_cannot_use_a_file_of_another_subject(db: sqlite3.Connection) ->
         activate_subject(db, subject_id, ["Être capable de A"], [chapter])
 
 
-def test_subject_is_activated_only_once(db: sqlite3.Connection) -> None:
-    subject_id, _ = make_draft(db)
-    activate_subject(db, subject_id, ["Être capable de A"], [])
+def test_r2_handwritten_objectives_give_way_to_the_validated_proposal(
+    db: sqlite3.Connection,
+) -> None:
+    subject_id, pdf = make_draft(db)
+    activate_subject(db, subject_id, ["Être capable de lire mes notes"], [])
+    objectives = ["Être capable de A", "Être capable de B"]
+    chapter = Chapter("Régression", "core", [ChapterSource(pdf, 1, 3)], [1, 2])
 
-    with pytest.raises(ValueError, match="not a draft"):
-        activate_subject(db, subject_id, ["Être capable de B"], [])
+    activate_subject(db, subject_id, objectives, [chapter], ["p-value"])
+
+    subject = get_subject(db, subject_id)
+    assert subject is not None
+    assert (subject.objectives, subject.chapters) == (objectives, [chapter])
+    assert subject.glossary == ["p-value"]
+
+
+def test_subject_split_into_chapters_is_validated_only_once(
+    db: sqlite3.Connection,
+) -> None:
+    subject_id, pdf = make_draft(db)
+    chapter = Chapter("Régression", "core", [ChapterSource(pdf, 1, 3)], [1])
+    activate_subject(db, subject_id, ["Être capable de A"], [chapter])
+
+    with pytest.raises(ValueError, match="already split"):
+        activate_subject(db, subject_id, ["Être capable de B"], [chapter])
+
+
+def test_glossary_keeps_each_term_once_in_the_order_given(
+    db: sqlite3.Connection,
+) -> None:
+    subject_id, _ = make_draft(db)
+    terms = ["p-value", "DataFrame", " p-value ", ""]
+
+    activate_subject(db, subject_id, ["Être capable de A"], [], terms)
+
+    subject = get_subject(db, subject_id)
+    assert subject is not None
+    assert subject.glossary == ["p-value", "DataFrame"]
+
+
+def test_subject_needs_a_name(db: sqlite3.Connection) -> None:
+    with pytest.raises(ValueError, match="name"):
+        create_draft_subject(db, "  ", EXAM)
 
 
 def test_r1_every_file_belongs_to_a_subject(db: sqlite3.Connection) -> None:

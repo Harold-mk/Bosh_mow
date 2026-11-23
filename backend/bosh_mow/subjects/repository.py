@@ -85,6 +85,7 @@ class Subject:
     objectives: list[str]
     chapters: list[Chapter]  # in order: chapter 1 first
     resources: list[Resource]
+    glossary: list[str]  # technical terms that are never translated (T9)
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,8 @@ def create_draft_subject(
     connection: sqlite3.Connection, name: str, exam_date: date
 ) -> int:
     """Create a subject as a draft, hidden until it is activated, and return its id."""
+    if not name.strip():
+        raise ValueError("A subject needs a name.")
     with connection:
         cursor = connection.execute(
             "INSERT INTO subject (name, exam_date) VALUES (?, ?)",
@@ -179,21 +182,27 @@ def activate_subject(
     subject_id: int,
     objectives: Sequence[str],
     chapters: Sequence[Chapter],
+    glossary: Sequence[str] = (),
 ) -> None:
-    """Save the validated objectives and chapters, then show the subject (R2, R3).
+    """Save the validated objectives, chapters and glossary; show the subject (R2, R3).
 
     `chapters` can be empty: if Claude is unavailable, the objectives are written by
-    hand and the split into chapters is validated later. All or nothing is saved.
+    hand in the meantime. Claude's proposal is then validated later in the same way,
+    and its objectives replace the handwritten ones. All or nothing is saved.
     """
     if not 1 <= len(objectives) <= MAX_OBJECTIVES or not all(
         text.strip() for text in objectives
     ):
         raise ValueError(f"A subject needs 1 to {MAX_OBJECTIVES} objectives.")
     row = connection.execute(
-        "SELECT status FROM subject WHERE id = ?", (subject_id,)
+        "SELECT status, EXISTS (SELECT 1 FROM chapter WHERE subject_id = s.id)"
+        " FROM subject s WHERE id = ?",
+        (subject_id,),
     ).fetchone()
-    if row is None or row[0] != "draft":
-        raise ValueError(f"Subject {subject_id} is not a draft.")
+    if row is None or row[0] == "archived" or row[1]:
+        raise ValueError(
+            f"Subject {subject_id} is unknown, archived or already split into chapters."
+        )
     own_files = {
         resource_id
         for (resource_id,) in connection.execute(
@@ -201,6 +210,7 @@ def activate_subject(
         )
     }
     with connection:
+        connection.execute("DELETE FROM objective WHERE subject_id = ?", (subject_id,))
         objective_ids = [
             connection.execute(
                 "INSERT INTO objective (subject_id, position, text) VALUES (?, ?, ?)",
@@ -209,37 +219,47 @@ def activate_subject(
             for position, text in enumerate(objectives, start=1)
         ]
         for number, chapter in enumerate(chapters, start=1):
-            chapter_id = connection.execute(
-                "INSERT INTO chapter (subject_id, number, title, role)"
-                " VALUES (?, ?, ?, ?)",
-                (subject_id, number, chapter.title.strip(), chapter.role),
-            ).lastrowid
-            for source in chapter.sources:
-                if source.resource_id not in own_files:
-                    raise ValueError(
-                        f"Chapter {number} uses a file of another subject."
-                    )
-                connection.execute(
-                    "INSERT INTO chapter_source"
-                    " (chapter_id, resource_id, first_page, last_page)"
-                    " VALUES (?, ?, ?, ?)",
-                    (
-                        chapter_id,
-                        source.resource_id,
-                        source.first_page,
-                        source.last_page,
-                    ),
-                )
-            for position in chapter.objectives:
-                if not 1 <= position <= len(objective_ids):
-                    raise ValueError(f"Chapter {number} uses a missing objective.")
-                connection.execute(
-                    "INSERT INTO chapter_objective (chapter_id, objective_id)"
-                    " VALUES (?, ?)",
-                    (chapter_id, objective_ids[position - 1]),
-                )
+            _insert_chapter(
+                connection, subject_id, number, chapter, objective_ids, own_files
+            )
+        connection.execute(
+            "DELETE FROM glossary_term WHERE subject_id = ?", (subject_id,)
+        )
+        connection.executemany(
+            "INSERT OR IGNORE INTO glossary_term (subject_id, term) VALUES (?, ?)",
+            [(subject_id, term.strip()) for term in glossary if term.strip()],
+        )
         connection.execute(
             "UPDATE subject SET status = 'active' WHERE id = ?", (subject_id,)
+        )
+
+
+def _insert_chapter(
+    connection: sqlite3.Connection,
+    subject_id: int,
+    number: int,
+    chapter: Chapter,
+    objective_ids: Sequence[int],
+    own_files: set[int],
+) -> None:
+    chapter_id = connection.execute(
+        "INSERT INTO chapter (subject_id, number, title, role) VALUES (?, ?, ?, ?)",
+        (subject_id, number, chapter.title.strip(), chapter.role),
+    ).lastrowid
+    for source in chapter.sources:
+        if source.resource_id not in own_files:
+            raise ValueError(f"Chapter {number} uses a file of another subject.")
+        connection.execute(
+            "INSERT INTO chapter_source"
+            " (chapter_id, resource_id, first_page, last_page) VALUES (?, ?, ?, ?)",
+            (chapter_id, source.resource_id, source.first_page, source.last_page),
+        )
+    for position in chapter.objectives:
+        if not 1 <= position <= len(objective_ids):
+            raise ValueError(f"Chapter {number} uses a missing objective.")
+        connection.execute(
+            "INSERT INTO chapter_objective (chapter_id, objective_id) VALUES (?, ?)",
+            (chapter_id, objective_ids[position - 1]),
         )
 
 
@@ -296,6 +316,13 @@ def get_subject(connection: sqlite3.Connection, subject_id: int) -> Subject | No
             (subject_id,),
         ).fetchall()
     ]
+    glossary = [
+        term
+        for (term,) in connection.execute(
+            "SELECT term FROM glossary_term WHERE subject_id = ? ORDER BY rowid",
+            (subject_id,),
+        )
+    ]
     return Subject(
         subject_id,
         name,
@@ -304,6 +331,7 @@ def get_subject(connection: sqlite3.Connection, subject_id: int) -> Subject | No
         objectives,
         chapters,
         resources,
+        glossary,
     )
 
 
