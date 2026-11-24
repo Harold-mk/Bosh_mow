@@ -1,0 +1,44 @@
+/* Mes matières: a grid of cards, one per subject. */
+.subjects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.subject-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--color-text);
+  transition: box-shadow var(--transition);
+}
+
+.subject-card:hover {
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.subject-card-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.subject-card-exam {
+  color: var(--color-text-secondary);
+}
+
+.subject-card-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-line);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.subjects-empty {
+  max-width: 640px;
+  line-height: 1.5;
+}

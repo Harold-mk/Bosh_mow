@@ -22,6 +22,12 @@ const PATHS = {
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  file: (
+    <>
+      <path d="M7 3h7l5 5v13H7z" />
+      <path d="M14 3v5h5" />
+    </>
+  ),
   alert: (
     <>
       <circle cx="12" cy="12" r="9" />

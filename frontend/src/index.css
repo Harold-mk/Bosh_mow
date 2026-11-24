@@ -138,6 +138,38 @@ a:hover {
   min-width: 0;
 }
 
+/* Key figures, side by side, each as wide as the others. */
+.key-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.key-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.key-figure-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.key-figure-number {
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.key-figure-unit {
+  font-size: 16px;
+  color: var(--color-text-secondary);
+}
+
 /* Buttons: pills of 36 px. A single primary button per screen, the one of the
    expected action; secondary for alternatives, ghost for what can be ignored. */
 .button {
