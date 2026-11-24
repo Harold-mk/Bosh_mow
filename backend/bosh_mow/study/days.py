@@ -10,8 +10,10 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Literal
 
-from bosh_mow.study.repository import SessionKind
+# A session: the daily queue, the minimum session (R12), or a new notion (R13).
+type SessionKind = Literal["queue", "notion"]
 
 
 @dataclass(frozen=True)

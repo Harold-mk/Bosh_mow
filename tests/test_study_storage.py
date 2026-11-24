@@ -1,18 +1,22 @@
 """Tests of the storage of studying: cards, answers, sessions, thoughts, wanderings."""
 
 import sqlite3
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fsrs import Card, State
 from test_content import MCQ, make_chapter
 
-from bosh_mow.content.repository import NewNotion, save_notions
+from bosh_mow.content.repository import NewNotion, report_question, save_notions
+from bosh_mow.study.days import DaySession
+from bosh_mow.study.queue import DueQuestion
 from bosh_mow.study.repository import (
     NewAnswer,
     add_thought,
     add_wandering,
+    day_sessions,
     decide_thought,
+    due_questions,
     end_session,
     get_card,
     record_answer,
@@ -22,6 +26,41 @@ from bosh_mow.study.repository import (
 )
 
 TODAY = date(2026, 11, 24)
+NOW = datetime(2026, 11, 24, 18, 0, tzinfo=UTC)
+
+
+def due_at(question_id: int, moment: datetime) -> Card:
+    return Card(
+        card_id=question_id,
+        state=State.Review,
+        stability=2.0,
+        difficulty=5.0,
+        due=moment,
+    )
+
+
+def test_r9_the_due_questions_of_the_active_subjects(db: sqlite3.Connection) -> None:
+    question_id = make_question(db)
+    (subject_id,) = db.execute("SELECT id FROM subject").fetchone()
+    save_card(db, due_at(question_id, NOW - timedelta(hours=1)))
+
+    assert due_questions(db, NOW) == [
+        DueQuestion(question_id, subject_id, NOW - timedelta(hours=1))
+    ]
+    assert due_questions(db, NOW - timedelta(hours=2)) == []  # not due yet then
+    report_question(db, question_id)
+    assert due_questions(db, NOW) == []  # reported: out of the reviews
+
+
+def test_r26_sessions_are_read_back_with_their_day(db: sqlite3.Connection) -> None:
+    queue = start_session(db, "queue", TODAY, planned=12)
+    end_session(db, queue, completed=True)
+    start_session(db, "notion", TODAY)
+
+    assert day_sessions(db) == [
+        DaySession(TODAY, "queue", True, 12),
+        DaySession(TODAY, "notion", False, None),
+    ]
 
 
 def make_question(db: sqlite3.Connection) -> int:

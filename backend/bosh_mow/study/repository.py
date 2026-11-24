@@ -8,9 +8,9 @@ from typing import Literal
 
 from fsrs import Card, State
 
-type SessionKind = Literal[
-    "queue", "notion"
-]  # the daily queue (R12), a new notion (R13)
+from bosh_mow.study.days import DaySession, SessionKind
+from bosh_mow.study.queue import DueQuestion
+
 type Confidence = Literal["sure", "hesitant", "guess"]  # sûr, hésitant, au hasard (R6)
 
 
@@ -96,13 +96,49 @@ def start_session(
     kind: SessionKind,
     day: date,
     notion_id: int | None = None,
+    planned: int | None = None,
 ) -> int:
-    """Start a session that counts for the local calendar day `day` (R26)."""
+    """Start a session that counts for the local calendar day `day` (R26).
+
+    `planned`: for the daily queue, how many questions it has at its start.
+    """
     with connection:
         return connection.execute(
-            "INSERT INTO study_session (kind, notion_id, day) VALUES (?, ?, ?)",
-            (kind, notion_id, day.isoformat()),
+            "INSERT INTO study_session (kind, notion_id, planned, day)"
+            " VALUES (?, ?, ?, ?)",
+            (kind, notion_id, planned, day.isoformat()),
         ).lastrowid
+
+
+def day_sessions(connection: sqlite3.Connection) -> list[DaySession]:
+    """Every session, as it counts for its day (R26)."""
+    rows = connection.execute(
+        "SELECT day, kind, completed, planned FROM study_session ORDER BY id"
+    ).fetchall()
+    return [
+        DaySession(date.fromisoformat(day), kind, bool(completed), planned)
+        for day, kind, completed, planned in rows
+    ]
+
+
+def due_questions(connection: sqlite3.Connection, now: datetime) -> list[DueQuestion]:
+    """The questions due by `now` in the active subjects, except the reported ones."""
+    rows = connection.execute(
+        """
+        SELECT c.question_id, s.id, c.due
+        FROM card c
+        JOIN question q ON q.id = c.question_id
+        JOIN notion n ON n.id = q.notion_id
+        JOIN chapter ch ON ch.id = n.chapter_id
+        JOIN subject s ON s.id = ch.subject_id
+        WHERE s.status = 'active' AND q.reported_at IS NULL AND c.due <= ?
+        """,
+        (_iso(now),),
+    ).fetchall()
+    return [
+        DueQuestion(question_id, subject_id, _moment(due))
+        for question_id, subject_id, due in rows
+    ]
 
 
 def end_session(
