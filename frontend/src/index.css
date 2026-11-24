@@ -223,6 +223,21 @@ a:hover {
   color: var(--color-ghost-disabled-text);
 }
 
+/* A row of buttons under a form, the primary one first. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* A short explanation next to a field or a button. */
+.hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
 /* Fields: filled with gray, without border; white with a black ring while typing. */
 .field {
   height: 36px;

@@ -1,0 +1,50 @@
+/* A choice in pills on a gray track (docs/regles-design.md, tabs): the selected
+   option is white. The small size is the one of Cœur/Secondaire. */
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 20px;
+  background: var(--color-line);
+}
+
+.segmented button {
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 15px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: 500 13px var(--font-text);
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.segmented.mono button {
+  font: 500 12.5px var(--font-mono);
+}
+
+.segmented button:hover {
+  color: var(--color-text);
+}
+
+.segmented button[aria-checked='true'] {
+  background: var(--color-card);
+  color: var(--color-text);
+}
+
+.segmented.small {
+  gap: 2px;
+  padding: 3px;
+  border-radius: 16px;
+}
+
+.segmented.small button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  font-size: 12px;
+}

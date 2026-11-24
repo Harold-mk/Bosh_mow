@@ -21,3 +21,114 @@
   align-items: center;
   gap: 12px;
 }
+
+/* Where we are: the current step is a longer dash, black up to it. */
+.welcome-steps {
+  display: flex;
+  gap: 6px;
+}
+
+.welcome-steps span {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-border);
+  transition: width 200ms;
+}
+
+.welcome-steps span.reached {
+  background: var(--color-text);
+}
+
+.welcome-steps span.current {
+  width: 28px;
+}
+
+.welcome-step {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.welcome-step h1 {
+  line-height: 1.25;
+}
+
+.welcome-step p {
+  line-height: 1.6;
+}
+
+.welcome-ideas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.welcome-ideas li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+}
+
+.welcome-ideas strong {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+
+.welcome-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--color-background);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 500 12px var(--font-mono);
+}
+
+.welcome-idea {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
+.welcome-question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.welcome-question-title {
+  font-weight: 600;
+}
+
+.welcome-plan {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.welcome-plan label {
+  font-weight: 500;
+}
+
+.welcome-total {
+  font-weight: 600;
+}
+
+.welcome-summary {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--color-background);
+  line-height: 1.5;
+}
+
+.welcome-summary strong {
+  font-weight: 600;
+}

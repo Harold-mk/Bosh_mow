@@ -39,10 +39,8 @@ export function App() {
   return (
     <HashRouter>
       <Routes>
-        <Route
-          path="/bienvenue"
-          element={settings ? <Navigate to="/matieres" replace /> : <WelcomeScreen />}
-        />
+        {/* Only reached without settings: Bienvenue itself leads on to the first subject. */}
+        <Route path="/bienvenue" element={<WelcomeScreen onDone={setSettings} />} />
         <Route
           element={
             settings ? (
