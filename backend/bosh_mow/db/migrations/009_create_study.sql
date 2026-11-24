@@ -20,6 +20,7 @@ CREATE TABLE study_session (
     id         INTEGER PRIMARY KEY,
     kind       TEXT    NOT NULL CHECK (kind IN ('queue', 'notion')),
     notion_id  INTEGER REFERENCES notion (id) ON DELETE SET NULL,
+    planned    INTEGER CHECK (planned >= 0), -- questions in the queue at its start
     day        TEXT    NOT NULL, -- the local calendar day it counts for (R26)
     started_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     ended_at   TEXT,
