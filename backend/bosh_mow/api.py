@@ -9,24 +9,52 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from bosh_mow import __version__
-from bosh_mow.content.preparation import request_preparation
+from bosh_mow.content.preparation import (
+    PreparationState,
+    preparation_state,
+    request_preparation,
+    validate_notions,
+)
+from bosh_mow.content.repository import get_notions, get_questions, report_question
 from bosh_mow.db.connection import connect
 from bosh_mow.paths import DataFolder
 from bosh_mow.settings import Settings, get_settings, save_settings
+from bosh_mow.study.repository import (
+    Confidence,
+    Thought,
+    add_thought,
+    add_wandering,
+    decide_thought,
+    undecided_thoughts,
+)
+from bosh_mow.study.sessions import (
+    Correction,
+    NotionSession,
+    NotionToStudy,
+    QuestionToAsk,
+    Today,
+    answer,
+    finish,
+    next_notion,
+    next_question,
+    start_notion,
+    start_queue,
+    today,
+)
 from bosh_mow.subjects.descriptions import (
     DescriptionCount,
     description_counts,
     request_descriptions,
 )
-from bosh_mow.subjects.importer import import_file, remove_file
+from bosh_mow.subjects.importer import copy_path, import_file, remove_file
 from bosh_mow.subjects.proposal import (
     Proposal,
     ProposalState,
@@ -34,12 +62,14 @@ from bosh_mow.subjects.proposal import (
     request_proposal,
 )
 from bosh_mow.subjects.repository import (
+    Heading,
     Resource,
     Subject,
     SubjectSummary,
     activate_subject,
     chapter_ids,
     create_draft_subject,
+    get_document,
     get_draft,
     get_subject,
     list_subjects,
@@ -208,6 +238,270 @@ def descriptions(subject_id: int, db: Database) -> list[DescriptionCount]:
     """For each PDF file with pages mostly in images, how many are described (T11)."""
     _subject(db, subject_id)
     return description_counts(db, subject_id)
+
+
+# Chapters: their notions and questions, prepared by Claude, then validated (R3)
+
+
+@dataclass(frozen=True)
+class QuestionSummary:
+    id: int
+    role: str
+    format: str
+    statement: str
+    reported: bool
+
+
+@dataclass(frozen=True)
+class NotionWithQuestions:
+    id: int
+    number: int
+    title: str
+    summary: str
+    resource_id: int
+    first_page: int
+    last_page: int
+    studied: bool
+    questions: list[QuestionSummary]
+
+
+@dataclass(frozen=True)
+class ChapterView:
+    id: int
+    number: int
+    title: str
+    role: str
+    notions: list[NotionWithQuestions]  # [] until they are validated
+
+
+@dataclass(frozen=True)
+class NotionTitles:
+    titles: list[str]  # one per notion proposed, in order
+
+
+@router.get("/subjects/{subject_id}/chapters/{number}")
+def chapter(subject_id: int, number: int, db: Database) -> ChapterView:
+    return _chapter_view(db, _chapter_id(db, subject_id, number))
+
+
+@router.get("/subjects/{subject_id}/chapters/{number}/preparation")
+def preparation(subject_id: int, number: int, db: Database) -> PreparationState | None:
+    """Where the preparation of a chapter stands; null if it was never asked for."""
+    return preparation_state(db, _chapter_id(db, subject_id, number))
+
+
+@router.post("/subjects/{subject_id}/chapters/{number}/preparation", status_code=202)
+def prepare_chapter(subject_id: int, number: int, db: Database) -> PreparationState:
+    """Préparer ce chapitre: ask Claude for its notions and questions (T2)."""
+    chapter_id = _chapter_id(db, subject_id, number)
+    if get_notions(db, chapter_id):
+        raise HTTPException(409, "Les notions de ce chapitre sont déjà validées.")
+    request_preparation(db, chapter_id)
+    state = preparation_state(db, chapter_id)
+    assert state is not None  # it was just asked for
+    return state
+
+
+@router.post("/subjects/{subject_id}/chapters/{number}/notions")
+def validate_chapter(
+    subject_id: int, number: int, notions: NotionTitles, db: Database
+) -> ChapterView:
+    """Save the notions proposed for a chapter, with the titles the student gave them,
+    and their questions (R3)."""
+    chapter_id = _chapter_id(db, subject_id, number)
+    validate_notions(db, chapter_id, notions.titles)
+    return _chapter_view(db, chapter_id)
+
+
+@router.post("/questions/{question_id}/report", status_code=204)
+def report(question_id: int, db: Database) -> None:
+    """Signaler: take a wrong question out of the reviews."""
+    report_question(db, question_id)
+
+
+# Studying: the day, the daily queue and a new notion (R6 to R18, R26, R27)
+
+
+@dataclass(frozen=True)
+class QueueStarted:
+    id: int
+    planned: int  # questions in the queue at its start
+
+
+@dataclass(frozen=True)
+class AnswerGiven:
+    question_id: int
+    chosen_option: int | None  # its number in the question; null: "Je ne sais pas"
+    confidence: Confidence | None
+    seconds: int
+
+
+@dataclass(frozen=True)
+class SessionEnd:
+    completed: bool  # the queue emptied or its time up; the notion studied to the end
+
+
+@dataclass(frozen=True)
+class DayStatus:
+    minimum_done: bool  # the day is successful (R26)
+
+
+@dataclass(frozen=True)
+class ThoughtNoted:
+    text: str
+
+
+@dataclass(frozen=True)
+class ThoughtDecision:
+    planned_for: str | None  # local date and time "YYYY-MM-DDTHH:MM"; null: dropped
+
+
+@dataclass(frozen=True)
+class Wandering:
+    question_id: int | None  # the question shown
+
+
+@router.get("/today")
+def day(db: Database) -> Today:
+    """Where the day stands, for the home screen."""
+    return today(db, date.today(), datetime.now(UTC))
+
+
+@router.post("/sessions", status_code=201)
+def new_queue(db: Database) -> QueueStarted:
+    """Start the daily queue, the minimum session (R12)."""
+    session_id = start_queue(db, date.today(), datetime.now(UTC))
+    (planned,) = db.execute(
+        "SELECT planned FROM study_session WHERE id = ?", (session_id,)
+    ).fetchone()
+    return QueueStarted(session_id, planned)
+
+
+@router.get("/sessions/{session_id}/next")
+def next_in_queue(session_id: int, db: Database) -> QuestionToAsk | None:
+    """The next question of the daily queue; null once it is empty."""
+    return next_question(db, session_id, datetime.now(UTC))
+
+
+@router.post("/sessions/{session_id}/answers")
+def give_answer(session_id: int, given: AnswerGiven, db: Database) -> Correction:
+    """Grade an answer at once, without AI (T5); set the next date of its question."""
+    return answer(
+        db,
+        session_id,
+        given.question_id,
+        given.chosen_option,
+        given.confidence,
+        given.seconds,
+        datetime.now(UTC),
+    )
+
+
+@router.post("/sessions/{session_id}/end")
+def end_study(session_id: int, ending: SessionEnd, db: Database) -> DayStatus:
+    """End a session once its thoughts are sorted (R17)."""
+    return DayStatus(finish(db, session_id, ending.completed, date.today()))
+
+
+@router.post("/sessions/{session_id}/thoughts", status_code=201)
+def note_thought(session_id: int, thought: ThoughtNoted, db: Database) -> Thought:
+    """Put a thought aside without leaving the question (key P, R17)."""
+    return Thought(add_thought(db, session_id, thought.text), thought.text.strip())
+
+
+@router.get("/sessions/{session_id}/thoughts")
+def thoughts(session_id: int, db: Database) -> list[Thought]:
+    """The thoughts still to plan or drop before the session ends (R17)."""
+    return undecided_thoughts(db, session_id)
+
+
+@router.post("/thoughts/{thought_id}/decision", status_code=204)
+def decide(thought_id: int, decision: ThoughtDecision, db: Database) -> None:
+    when = (
+        datetime.fromisoformat(decision.planned_for) if decision.planned_for else None
+    )
+    decide_thought(db, thought_id, when)
+
+
+@router.post("/sessions/{session_id}/wanderings", status_code=204)
+def wandered(session_id: int, wandering: Wandering, db: Database) -> None:
+    """J'ai décroché: counted, and the session goes on (R18)."""
+    add_wandering(db, session_id, wandering.question_id)
+
+
+@router.get("/notions/next")
+def notion_to_study(db: Database) -> NotionToStudy | None:
+    """The next notion to study, in the subject with the closest exam."""
+    return next_notion(db)
+
+
+@router.post("/notions/{notion_id}/session", status_code=201)
+def study_notion(notion_id: int, db: Database) -> NotionSession:
+    """Start the study of a notion: pretests, reading, then test (R13)."""
+    return start_notion(db, notion_id, date.today())
+
+
+# The reader: the imported files, untouched, and their outline (R4)
+
+
+@router.get("/resources/{resource_id}/file")
+def resource_file(resource_id: int, db: Database, folder: Folder) -> FileResponse:
+    row = db.execute(
+        "SELECT kind FROM resource WHERE id = ?", (resource_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Ce fichier n'existe pas.")
+    (kind,) = row
+    path = copy_path(folder.resources, resource_id, kind)
+    if not path.exists():
+        raise HTTPException(404, "La copie de ce fichier est introuvable.")
+    media = "application/pdf" if kind == "pdf" else "text/markdown; charset=utf-8"
+    return FileResponse(path, media_type=media)
+
+
+@router.get("/resources/{resource_id}/outline")
+def resource_outline(resource_id: int, db: Database) -> list[Heading]:
+    """The outline of a file, for the table of contents of the reader."""
+    if (
+        db.execute("SELECT 1 FROM resource WHERE id = ?", (resource_id,)).fetchone()
+        is None
+    ):
+        raise HTTPException(404, "Ce fichier n'existe pas.")
+    return get_document(db, resource_id).headings
+
+
+def _chapter_id(db: sqlite3.Connection, subject_id: int, number: int) -> int:
+    row = db.execute(
+        "SELECT id FROM chapter WHERE subject_id = ? AND number = ?",
+        (subject_id, number),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Ce chapitre n'existe pas.")
+    return row[0]
+
+
+def _chapter_view(db: sqlite3.Connection, chapter_id: int) -> ChapterView:
+    number, title, role = db.execute(
+        "SELECT number, title, role FROM chapter WHERE id = ?", (chapter_id,)
+    ).fetchone()
+    notions = [
+        NotionWithQuestions(
+            notion.id,
+            notion.number,
+            notion.title,
+            notion.summary,
+            notion.resource_id,
+            notion.first_page,
+            notion.last_page,
+            notion.studied,
+            [
+                QuestionSummary(q.id, q.role, q.format, q.statement, q.reported)
+                for q in get_questions(db, notion.id)
+            ],
+        )
+        for notion in get_notions(db, chapter_id)
+    ]
+    return ChapterView(chapter_id, number, title, role, notions)
 
 
 def _subject(db: sqlite3.Connection, subject_id: int) -> Subject:
