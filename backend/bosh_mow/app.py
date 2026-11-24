@@ -16,6 +16,7 @@ from bosh_mow.ai.claude import ClaudeEngine
 from bosh_mow.ai.gateway import Gateway
 from bosh_mow.ai.tasks import start_worker
 from bosh_mow.api import create_app
+from bosh_mow.content import preparation
 from bosh_mow.db.connection import connect
 from bosh_mow.db.migrate import apply_migrations
 from bosh_mow.paths import default_data_folder
@@ -58,6 +59,7 @@ def main() -> None:
     handlers = {
         proposal.TASK: proposal.proposal_handler(gateway),
         descriptions.TASK: descriptions.description_handler(gateway, folder.resources),
+        preparation.TASK: preparation.preparation_handler(gateway),
     }
     start_worker(folder.database, handlers, threading.Event())
     start_server(api, port)

@@ -287,6 +287,16 @@ def _insert_chapter(
         )
 
 
+def chapter_ids(connection: sqlite3.Connection, subject_id: int) -> list[int]:
+    """The ids of the chapters of a subject, chapter 1 first."""
+    return [
+        chapter_id
+        for (chapter_id,) in connection.execute(
+            "SELECT id FROM chapter WHERE subject_id = ? ORDER BY number", (subject_id,)
+        )
+    ]
+
+
 def list_subjects(connection: sqlite3.Connection) -> list[SubjectSummary]:
     """The active subjects, the closest exam first."""
     rows = connection.execute(

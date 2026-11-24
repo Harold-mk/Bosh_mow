@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadF
 from fastapi.responses import JSONResponse
 
 from bosh_mow import __version__
+from bosh_mow.content.preparation import request_preparation
 from bosh_mow.db.connection import connect
 from bosh_mow.paths import DataFolder
 from bosh_mow.settings import Settings, get_settings, save_settings
@@ -37,6 +38,7 @@ from bosh_mow.subjects.repository import (
     Subject,
     SubjectSummary,
     activate_subject,
+    chapter_ids,
     create_draft_subject,
     get_draft,
     get_subject,
@@ -187,7 +189,8 @@ def validate(subject_id: int, proposal: Proposal, db: Database) -> Subject:
 
     Without Claude, the chapters can be empty: the objectives are then written by
     hand, and the proposal is validated later in the same way. Once the chapters are
-    known, the pages mostly in images are described in the background (T11).
+    known, the pages mostly in images are described in the background (T11), then
+    chapter 1 is prepared: its notions and questions (T1 pass 2, T2).
     """
     _subject(db, subject_id)
     activate_subject(
@@ -195,6 +198,8 @@ def validate(subject_id: int, proposal: Proposal, db: Database) -> Subject:
     )
     if proposal.chapters:
         request_descriptions(db, subject_id)
+        # After the descriptions: the questions of a chapter need them (R38).
+        request_preparation(db, chapter_ids(db, subject_id)[0])
     return _subject(db, subject_id)
 
 
