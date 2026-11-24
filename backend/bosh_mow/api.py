@@ -20,6 +20,11 @@ from bosh_mow import __version__
 from bosh_mow.db.connection import connect
 from bosh_mow.paths import DataFolder
 from bosh_mow.settings import Settings, get_settings, save_settings
+from bosh_mow.subjects.descriptions import (
+    DescriptionCount,
+    description_counts,
+    request_descriptions,
+)
 from bosh_mow.subjects.importer import import_file, remove_file
 from bosh_mow.subjects.proposal import (
     Proposal,
@@ -181,13 +186,23 @@ def validate(subject_id: int, proposal: Proposal, db: Database) -> Subject:
     """Save the objectives and chapters as corrected by the student (R2, R3).
 
     Without Claude, the chapters can be empty: the objectives are then written by
-    hand, and the proposal is validated later in the same way.
+    hand, and the proposal is validated later in the same way. Once the chapters are
+    known, the pages mostly in images are described in the background (T11).
     """
     _subject(db, subject_id)
     activate_subject(
         db, subject_id, proposal.objectives, proposal.chapters, proposal.glossary
     )
+    if proposal.chapters:
+        request_descriptions(db, subject_id)
     return _subject(db, subject_id)
+
+
+@router.get("/subjects/{subject_id}/descriptions")
+def descriptions(subject_id: int, db: Database) -> list[DescriptionCount]:
+    """For each PDF file with pages mostly in images, how many are described (T11)."""
+    _subject(db, subject_id)
+    return description_counts(db, subject_id)
 
 
 def _subject(db: sqlite3.Connection, subject_id: int) -> Subject:

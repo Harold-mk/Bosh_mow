@@ -30,3 +30,12 @@ class T1Answer(BaseModel):
     objectives: list[str]  # « Être capable de… »
     chapters: list[T1Chapter]  # in the order of study
     glossary: list[str]  # technical terms that are never translated (T9)
+
+
+class T11Answer(BaseModel):
+    """T11: the description of a page whose content is mostly in images."""
+
+    page: int
+    description: str
+    elements: list[str]  # the visible parts: axes, curves, legends, labels…
+    to_check: str | None  # what is unreadable or ambiguous, never in the description

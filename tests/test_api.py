@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pymupdf
 import pytest
 from fake_ai import FakeEngine
 from fastapi.testclient import TestClient
@@ -281,3 +282,39 @@ def test_a_validation_that_breaks_a_rule_is_refused(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert "1 to 5 objectives" in response.json()["detail"]
+
+
+def test_validated_chapters_lead_to_the_description_of_pages_in_images(
+    client: TestClient, db: sqlite3.Connection
+) -> None:
+    pdf = pymupdf.open()
+    pdf.new_page().insert_text((72, 72), "Notes de cours " * 20, fontsize=9)
+    diagram = pdf.new_page()
+    diagram.insert_text((72, 72), "Courbe d'erreur", fontsize=20)
+    diagram.draw_rect(pymupdf.Rect(100, 120, 400, 400), color=(0, 0, 0))
+    subject_id = new_draft(client)
+    upload = client.post(
+        f"/api/subjects/{subject_id}/files",
+        files={"file": ("cours.pdf", pdf.tobytes())},
+    )
+    file_id = upload.json()["id"]
+    split = {
+        "objectives": ["Être capable de lire une courbe d'erreur"],
+        "chapters": [
+            {
+                "title": "Erreur",
+                "role": "core",
+                "sources": [{"resource_id": file_id, "first_page": 1, "last_page": 2}],
+                "objectives": [1],
+            }
+        ],
+        "glossary": [],
+    }
+
+    client.post(f"/api/subjects/{subject_id}/validate", json=split)
+
+    assert client.get(f"/api/subjects/{subject_id}/descriptions").json() == [
+        {"resource_id": file_id, "to_describe": 1, "described": 0}
+    ]
+    queued = db.execute("SELECT input FROM ai_task WHERE kind = 't11'").fetchall()
+    assert queued == [(f'{{"resource_id": {file_id}, "page": 2}}',)]

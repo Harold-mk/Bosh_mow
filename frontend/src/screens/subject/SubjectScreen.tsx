@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router'
-import { getSubject, messageOf, type Subject } from '../../api.ts'
+import {
+  getDescriptions,
+  getSubject,
+  messageOf,
+  type DescriptionCount,
+  type Subject,
+} from '../../api.ts'
 import { Icon } from '../../components/Icon.tsx'
 import { KeyFigure } from '../../components/KeyFigure.tsx'
 import { Notice } from '../../components/Notice.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
-import { daysUntil, fileSummary, longDate } from '../../format.ts'
+import { count, daysUntil, fileSummary, longDate } from '../../format.ts'
 import { PendingSplit } from './PendingSplit.tsx'
 import './SubjectScreen.css'
 
@@ -21,6 +27,15 @@ export function SubjectScreen() {
   useEffect(() => {
     getSubject(subjectId).then(setSubject, (reason: unknown) => setError(messageOf(reason)))
   }, [subjectId])
+
+  // The pages mostly in images are described once the chapters are validated (T11).
+  const [descriptions, setDescriptions] = useState<DescriptionCount[]>([])
+  const split = (subject?.chapters.length ?? 0) > 0
+  useEffect(() => {
+    if (!split) return
+    // Only a progress line: if it cannot be read, the page shows no line.
+    getDescriptions(subjectId).then(setDescriptions, () => {})
+  }, [subjectId, split])
 
   if (error) {
     return (
@@ -89,6 +104,13 @@ export function SubjectScreen() {
                   <span className="subject-item">
                     <span className="subject-item-title">{resource.file_name}</span>
                     <span className="hint">{fileSummary(resource)}</span>
+                    {descriptions
+                      .filter((progress) => progress.resource_id === resource.id)
+                      .map((progress) => (
+                        <span key={progress.resource_id} className="hint">
+                          {describedText(progress)}
+                        </span>
+                      ))}
                   </span>
                 </li>
               ))}
@@ -98,4 +120,11 @@ export function SubjectScreen() {
       </div>
     </>
   )
+}
+
+/** "12 pages de schémas décrites sur 26", or "26 pages de schémas décrites". */
+function describedText({ to_describe, described }: DescriptionCount): string {
+  const done = described < 2 ? 'décrite' : 'décrites'
+  if (described === to_describe) return `${count(to_describe, 'page')} de schémas ${done}`
+  return `${count(described, 'page')} de schémas ${done} sur ${to_describe}`
 }

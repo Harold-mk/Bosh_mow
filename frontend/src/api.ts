@@ -54,6 +54,9 @@ export type SubjectSummary = {
 /** Objectives, chapters and glossary, as the student reviews and validates them. */
 export type Proposal = { objectives: string[]; chapters: Chapter[]; glossary: string[] }
 
+/** For one PDF file: its pages mostly in images, and how many are described (T11). */
+export type DescriptionCount = { resource_id: number; to_describe: number; described: number }
+
 /** Where the proposal of Claude for a subject stands. */
 export type ProposalState = {
   status: 'pending' | 'running' | 'done' | 'failed'
@@ -115,6 +118,11 @@ export function getProposal(subjectId: number): Promise<ProposalState | null> {
 /** Save the objectives and chapters as corrected by the student (R2, R3). */
 export function validateSubject(subjectId: number, proposal: Proposal): Promise<Subject> {
   return request('POST', `/subjects/${subjectId}/validate`, proposal)
+}
+
+/** How far the description of the pages mostly in images is, file by file. */
+export function getDescriptions(subjectId: number): Promise<DescriptionCount[]> {
+  return request('GET', `/subjects/${subjectId}/descriptions`)
 }
 
 /** The message to show for an error caught from a call. */
