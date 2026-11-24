@@ -3,7 +3,9 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router'
 import { getSettings, messageOf, type Settings } from './api.ts'
 import { Layout } from './components/Layout.tsx'
 import { Notice } from './components/Notice.tsx'
+import { HomeScreen } from './screens/home/HomeScreen.tsx'
 import { NewSubjectScreen } from './screens/new-subject/NewSubjectScreen.tsx'
+import { SessionScreen } from './screens/session/SessionScreen.tsx'
 import { SubjectScreen } from './screens/subject/SubjectScreen.tsx'
 import { SubjectsScreen } from './screens/subjects/SubjectsScreen.tsx'
 import { WelcomeScreen } from './screens/welcome/WelcomeScreen.tsx'
@@ -50,11 +52,13 @@ export function App() {
             )
           }
         >
+          <Route path="/accueil" element={<HomeScreen />} />
+          <Route path="/session" element={<SessionScreen />} />
           <Route path="/matieres" element={<SubjectsScreen />} />
           <Route path="/matieres/nouvelle" element={<NewSubjectScreen />} />
           <Route path="/matieres/:subjectId" element={<SubjectScreen />} />
         </Route>
-        <Route path="*" element={<Navigate to="/matieres" replace />} />
+        <Route path="*" element={<Navigate to="/accueil" replace />} />
       </Routes>
     </HashRouter>
   )

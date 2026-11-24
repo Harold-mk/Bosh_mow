@@ -27,6 +27,16 @@ export function longDate(isoDate: string): string {
   return formatDate(isoDate, 'long')
 }
 
+/** A day as "Mardi 25 novembre". */
+export function dayLabel(moment: Date): string {
+  const text = new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(moment)
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
 /** Whole days from today to a calendar date 'YYYY-MM-DD'; negative once it is past. */
 export function daysUntil(isoDate: string): number {
   const now = new Date()

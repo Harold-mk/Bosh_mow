@@ -19,6 +19,7 @@ from bosh_mow.study.repository import (
     due_questions,
     end_session,
     get_card,
+    minutes_studied,
     record_answer,
     save_card,
     start_session,
@@ -164,3 +165,19 @@ def test_r18_a_wandering_is_counted_on_the_question_shown(
     assert db.execute(
         "SELECT session_id, question_id FROM mind_wandering"
     ).fetchall() == [(session_id, question_id)]
+
+
+def test_the_minutes_of_the_ended_sessions_of_a_day(db: sqlite3.Connection) -> None:
+    db.executemany(
+        "INSERT INTO study_session (kind, day, started_at, ended_at)"
+        " VALUES (?, ?, ?, ?)",
+        [
+            ("queue", "2026-11-24", "2026-11-24T18:00:00Z", "2026-11-24T18:15:30Z"),
+            ("notion", "2026-11-24", "2026-11-24T18:20:00Z", "2026-11-24T18:50:00Z"),
+            ("notion", "2026-11-24", "2026-11-24T19:00:00Z", None),  # still going
+            ("queue", "2026-11-23", "2026-11-23T18:00:00Z", "2026-11-23T18:15:00Z"),
+        ],
+    )
+    db.commit()
+
+    assert minutes_studied(db, TODAY) == 45  # 15 min 30 s + 30 min

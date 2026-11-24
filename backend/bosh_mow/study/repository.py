@@ -110,6 +110,16 @@ def start_session(
         ).lastrowid
 
 
+def minutes_studied(connection: sqlite3.Connection, day: date) -> int:
+    """The minutes of the sessions of a day that have ended."""
+    (seconds,) = connection.execute(
+        "SELECT COALESCE(SUM(unixepoch(ended_at) - unixepoch(started_at)), 0)"
+        " FROM study_session WHERE day = ? AND ended_at IS NOT NULL",
+        (day.isoformat(),),
+    ).fetchone()
+    return seconds // 60
+
+
 def day_sessions(connection: sqlite3.Connection) -> list[DaySession]:
     """Every session, as it counts for its day (R26)."""
     rows = connection.execute(

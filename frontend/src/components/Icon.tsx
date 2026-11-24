@@ -1,6 +1,13 @@
 /* Icons in thin rounded strokes on a 24 px grid (docs/charte.md), from the mockups. */
 
 const PATHS = {
+  home: <path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z" />,
+  session: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M10 8.5l5.5 3.5-5.5 3.5z" />
+    </>
+  ),
   course: (
     <>
       <path d="M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z" />

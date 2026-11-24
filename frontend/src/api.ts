@@ -64,6 +64,20 @@ export type ProposalState = {
   proposal: Proposal | null // once done
 }
 
+/** Where the day stands, for the home screen and the sidebar. */
+export type Today = {
+  due: number // the questions of today's queue: never a backlog (R12, R27)
+  successful_days: number // R26
+  minimum_done: boolean
+  missed_yesterday: boolean // warn before a second missed day in a row
+  after_absence: boolean // today, the minimum session alone (R27)
+  minutes: number // studied today
+}
+
+export function getToday(): Promise<Today> {
+  return request('GET', '/today')
+}
+
 export function getSettings(): Promise<Settings | null> {
   return request('GET', '/settings')
 }

@@ -29,6 +29,7 @@ from bosh_mow.study.repository import (
     due_questions,
     end_session,
     get_card,
+    minutes_studied,
     record_answer,
     save_card,
     start_session,
@@ -74,6 +75,7 @@ class Today:
     minimum_done: bool
     missed_yesterday: bool  # warn before a second missed day in a row (R26)
     after_absence: bool  # today, the minimum session alone (R27)
+    minutes: int  # studied today, in the sessions that have ended
 
 
 @dataclass(frozen=True)
@@ -107,6 +109,7 @@ def today(connection: sqlite3.Connection, day: date, now: datetime) -> Today:
         day in done,
         missed_yesterday(done, first, day),
         after_absence(done, first, day),
+        minutes_studied(connection, day),
     )
 
 
