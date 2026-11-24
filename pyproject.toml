@@ -12,6 +12,7 @@ authors = [{ name = "Harold Mokam" }]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",
+    "fsrs",
     "uvicorn",
     "pywebview",
     "pydantic",

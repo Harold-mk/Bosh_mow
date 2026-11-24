@@ -1,0 +1,178 @@
+"""Storage of the notions of a chapter and of the questions on each notion.
+
+Claude proposes them just before a chapter is studied (T1 pass 2, T2). They are saved
+once the student validates the notions (R3); questions are not reviewed one by one, and
+"Signaler" takes a wrong one out of the reviews.
+"""
+
+import json
+import sqlite3
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+type Role = Literal["pretest", "review"]
+type QuestionType = Literal["concept", "calculation", "code"]
+# R5: restituer, expliquer, appliquer, analyser.
+type Level = Literal["recall", "explain", "apply", "analyze"]
+type Format = Literal["mcq", "value", "short", "open"]
+
+
+@dataclass(frozen=True)
+class NewQuestion:
+    """A question on a single idea (R5), with its source pages in its notion's file."""
+
+    role: Role
+    type: QuestionType
+    level: Level
+    format: Format
+    difficulty: int  # 1 (easy) to 3 (hard)
+    statement: str  # in English (R5)
+    first_page: int
+    last_page: int
+    content: dict[str, Any]  # what its format needs (see migration 008)
+
+
+@dataclass(frozen=True)
+class Question(NewQuestion):
+    id: int
+    notion_id: int
+    reported: bool  # "Signaler": out of the reviews
+
+
+@dataclass(frozen=True)
+class NewNotion:
+    """A notion as validated, with the questions Claude wrote on it."""
+
+    title: str
+    summary: str
+    resource_id: int
+    first_page: int
+    last_page: int
+    questions: list[NewQuestion] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Notion:
+    id: int
+    chapter_id: int
+    number: int  # its place in the chapter, from 1
+    title: str
+    summary: str
+    resource_id: int
+    first_page: int
+    last_page: int
+    studied: bool  # its first study is done (R13)
+
+
+def save_notions(
+    connection: sqlite3.Connection, chapter_id: int, notions: Sequence[NewNotion]
+) -> list[int]:
+    """Save the validated notions of a chapter with their questions; return their ids.
+
+    The notions of a chapter are saved once. All or nothing is saved.
+    """
+    if connection.execute(
+        "SELECT 1 FROM notion WHERE chapter_id = ?", (chapter_id,)
+    ).fetchone():
+        raise ValueError(f"Chapter {chapter_id} already has its notions.")
+    notion_ids: list[int] = []
+    with connection:
+        for number, notion in enumerate(notions, start=1):
+            notion_id = connection.execute(
+                "INSERT INTO notion (chapter_id, number, title, summary, resource_id,"
+                " first_page, last_page) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    chapter_id,
+                    number,
+                    notion.title.strip(),
+                    notion.summary.strip(),
+                    notion.resource_id,
+                    notion.first_page,
+                    notion.last_page,
+                ),
+            ).lastrowid
+            connection.executemany(
+                "INSERT INTO question (notion_id, position, role, type, level, format,"
+                " difficulty, statement, first_page, last_page, content)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        notion_id,
+                        position,
+                        question.role,
+                        question.type,
+                        question.level,
+                        question.format,
+                        question.difficulty,
+                        question.statement,
+                        question.first_page,
+                        question.last_page,
+                        json.dumps(question.content, ensure_ascii=False),
+                    )
+                    for position, question in enumerate(notion.questions, start=1)
+                ],
+            )
+            notion_ids.append(notion_id)
+    return notion_ids
+
+
+def get_notions(connection: sqlite3.Connection, chapter_id: int) -> list[Notion]:
+    """The notions of a chapter, in order; [] while they are not validated."""
+    rows = connection.execute(
+        "SELECT id, chapter_id, number, title, summary, resource_id, first_page,"
+        " last_page, studied_at IS NOT NULL FROM notion WHERE chapter_id = ?"
+        " ORDER BY number",
+        (chapter_id,),
+    ).fetchall()
+    return [Notion(*row[:-1], bool(row[-1])) for row in rows]
+
+
+def get_questions(connection: sqlite3.Connection, notion_id: int) -> list[Question]:
+    """The questions on a notion, in order, reported ones included."""
+    rows = connection.execute(
+        f"{_SELECT_QUESTION} WHERE notion_id = ? ORDER BY position", (notion_id,)
+    ).fetchall()
+    return [_question(row) for row in rows]
+
+
+def get_question(connection: sqlite3.Connection, question_id: int) -> Question | None:
+    row = connection.execute(
+        f"{_SELECT_QUESTION} WHERE id = ?", (question_id,)
+    ).fetchone()
+    return _question(row) if row else None
+
+
+def report_question(connection: sqlite3.Connection, question_id: int) -> None:
+    """Take a wrong question out of the reviews (Signaler), but keep it."""
+    with connection:
+        reported = connection.execute(
+            "UPDATE question SET reported_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+            " WHERE id = ?",
+            (question_id,),
+        ).rowcount
+    if not reported:
+        raise ValueError(f"Question {question_id} does not exist.")
+
+
+def mark_studied(connection: sqlite3.Connection, notion_id: int) -> None:
+    """Note that the first study of a notion is done (R13)."""
+    with connection:
+        connection.execute(
+            "UPDATE notion SET studied_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+            " WHERE id = ? AND studied_at IS NULL",
+            (notion_id,),
+        )
+
+
+_SELECT_QUESTION = (
+    "SELECT role, type, level, format, difficulty, statement, first_page, last_page,"
+    " content, id, notion_id, reported_at IS NOT NULL FROM question"
+)
+
+
+def _question(row: tuple[Any, ...]) -> Question:
+    *fields, content, question_id, notion_id, reported = row
+    return Question(
+        *fields, json.loads(content), question_id, notion_id, bool(reported)
+    )
