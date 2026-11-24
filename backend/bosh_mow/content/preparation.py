@@ -11,13 +11,13 @@ import re
 import sqlite3
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from bosh_mow.ai.gateway import EngineUnavailable, Gateway
 from bosh_mow.ai.schemas import T2Answer, T2Notion, T2Question
 from bosh_mow.ai.tasks import Handler, Task, add_task, get_task, retry_now
-from bosh_mow.content.repository import NewNotion, NewQuestion
+from bosh_mow.content.repository import NewNotion, NewQuestion, save_notions
 from bosh_mow.subjects.descriptions import TASK as DESCRIBE_TASK
 
 PROMPT = "t2_v1"
@@ -184,6 +184,23 @@ def preparation_state(
             task.status, task.error, to_notions(answer), answer.boundary_alert
         )
     return PreparationState(task.status, task.error)
+
+
+def validate_notions(
+    connection: sqlite3.Connection, chapter_id: int, titles: Sequence[str]
+) -> None:
+    """Save the notions proposed for a chapter, with the titles the student gave them
+    (R3), and their questions."""
+    state = preparation_state(connection, chapter_id)
+    if state is None or state.status != "done":
+        raise ValueError(f"The notions of chapter {chapter_id} are not ready.")
+    if len(titles) != len(state.notions) or not all(title.strip() for title in titles):
+        raise ValueError("Give a title to each notion proposed.")
+    notions = [
+        replace(notion, title=title.strip())
+        for notion, title in zip(state.notions, titles, strict=True)
+    ]
+    save_notions(connection, chapter_id, notions)
 
 
 def preparation_handler(gateway: Gateway) -> Handler:
