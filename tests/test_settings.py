@@ -1,4 +1,4 @@
-"""Tests of the settings chosen at first launch (R11, R25)."""
+"""Tests of the settings chosen at first launch (R11, R25) and of the interface."""
 
 import sqlite3
 
@@ -16,3 +16,14 @@ def test_saved_settings_replace_the_previous_ones(db: sqlite3.Connection) -> Non
     assert get_settings(db) == Settings(
         60, 120, "j'ai dîné", "je lance la file du jour"
     )
+
+
+def test_the_reduced_sidebar_is_remembered(db: sqlite3.Connection) -> None:
+    settings = Settings(90, 180, "je rentre", "je lance la file du jour")
+    assert settings.sidebar_collapsed is False
+
+    save_settings(db, Settings(90, 180, "je rentre", "je lance la file du jour", True))
+
+    saved = get_settings(db)
+    assert saved is not None
+    assert saved.sidebar_collapsed is True

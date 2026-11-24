@@ -1,5 +1,7 @@
-/* Colors and fonts of the style guide (docs/charte.md). Light mode only for now. */
+/* Tokens of the style guide (docs/charte.md) and of the design rules
+   (docs/regles-design.md), then the styles shared by every screen. Light mode only. */
 :root {
+  /* Black and white everywhere: color is kept for results. */
   --color-background: #f1f2f3;
   --color-card: #ffffff;
   --color-text: #111214; /* also actions, selection and progress */
@@ -10,9 +12,19 @@
   --color-correct-background: #e6f3ec;
   --color-review: #8a3409;
   --color-review-background: #fbeee6;
+  /* Grays for states only: hover, pressed, disabled. */
+  --color-primary-hover: #2a2c30;
+  --color-border: #d5d7da;
+  --color-secondary-hover: #f5f6f7;
+  --color-pressed: #ecedee; /* a secondary button pressed, a field hovered */
+  --color-menu-hover: #e9eaec;
+  --color-disabled-text: #9a9da3;
+  --color-ghost-disabled-text: #b5b8bd;
+  --color-placeholder: #8a8d93;
 
   --font-text: 'Inter Variable', sans-serif;
   --font-mono: 'JetBrains Mono Variable', monospace; /* numbers, timer, code */
+  --transition: 150ms; /* animations last 150 to 200 ms */
 
   color-scheme: light;
   font-family: var(--font-text);
@@ -21,14 +33,14 @@
   background: var(--color-background);
 }
 
-body {
-  margin: 16px;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-main {
-  background: var(--color-card);
-  border-radius: 16px;
-  padding: 14px;
+body {
+  margin: 0;
 }
 
 h1 {
@@ -38,6 +50,220 @@ h1 {
   letter-spacing: -0.02em;
 }
 
+h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--color-text);
+}
+
+a:hover {
+  color: var(--color-text-secondary);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 .mono {
   font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* Small text above a title or a number. */
+.label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+/* The frame: the sidebar on the left, the page on the right, 16 px around them. */
+.app {
+  min-height: 100vh;
+  padding: 16px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.page {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 1200px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 4px 4px 0;
+}
+
+.page-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.breadcrumb a {
+  color: inherit;
+}
+
+.card {
+  background: var(--color-card);
+  border-radius: 16px;
+  padding: 14px;
+  min-width: 0;
+}
+
+/* Buttons: pills of 36 px. A single primary button per screen, the one of the
+   expected action; secondary for alternatives, ghost for what can be ignored. */
+.button {
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 13px var(--font-text);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition),
+    transform var(--transition);
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.button:disabled {
+  cursor: default;
+}
+
+.button.primary {
+  background: var(--color-text);
+  color: #ffffff;
+}
+
+.button.primary:hover {
+  background: var(--color-primary-hover);
+}
+
+.button.primary:active {
+  background: #000000;
+}
+
+.button.primary:disabled {
+  background: var(--color-line);
+  color: var(--color-disabled-text);
+}
+
+.button.secondary {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.button.secondary:hover {
+  background: var(--color-secondary-hover);
+}
+
+.button.secondary:active {
+  background: var(--color-pressed);
+}
+
+.button.secondary:disabled {
+  background: var(--color-card);
+  border-color: var(--color-line);
+  color: var(--color-disabled-text);
+}
+
+.button.ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.button.ghost:hover {
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.button.ghost:active {
+  background: var(--color-line);
+}
+
+.button.ghost:disabled {
+  background: transparent;
+  color: var(--color-ghost-disabled-text);
+}
+
+/* Fields: filled with gray, without border; white with a black ring while typing. */
+.field {
+  height: 36px;
+  width: 100%;
+  padding: 0 12px;
+  border: none;
+  border-radius: 12px;
+  background: var(--color-background);
+  font: 400 13px var(--font-text);
+  color: var(--color-text);
+  transition:
+    background-color var(--transition),
+    box-shadow var(--transition);
+}
+
+.field::placeholder {
+  color: var(--color-placeholder);
+}
+
+.field:hover {
+  background: var(--color-pressed);
+}
+
+.field:focus {
+  outline: none;
+  background: var(--color-card);
+  box-shadow: inset 0 0 0 1.5px var(--color-text);
+}
+
+/* What went wrong, and why. Without color: color is kept for results. */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  line-height: 1.4;
+}
+
+.notice svg {
+  flex: none;
+  color: var(--color-text-secondary);
 }

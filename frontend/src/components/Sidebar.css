@@ -1,0 +1,104 @@
+/* The sidebar (docs/regles-design.md): fixed, 220 px wide and as tall as the window;
+   reduced, a column of icons of 64 px. */
+.sidebar {
+  position: sticky;
+  top: 16px;
+  flex: 0 0 220px;
+  height: calc(100vh - 32px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar.collapsed {
+  flex-basis: 64px;
+  align-items: center;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 16px 8px;
+}
+
+.sidebar.collapsed .sidebar-brand {
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 10px;
+}
+
+.sidebar-toggle {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.sidebar.collapsed .sidebar-toggle {
+  margin-left: 0;
+}
+
+.sidebar-toggle:hover {
+  background: var(--color-menu-hover);
+  color: var(--color-text);
+}
+
+/* Menu entries: gray; the selected one is a white pill with a black dot. */
+.sidebar-link {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--color-text-secondary);
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.sidebar-link:hover {
+  background: var(--color-menu-hover);
+  color: var(--color-text);
+}
+
+.sidebar-link.active {
+  background: var(--color-card);
+  color: var(--color-text);
+}
+
+.sidebar-link.active::after {
+  content: '';
+  margin-left: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-text);
+}
+
+.sidebar.collapsed .sidebar-link {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 20px;
+  justify-content: center;
+}
+
+.sidebar.collapsed .sidebar-link.active::after {
+  display: none;
+}

@@ -1,4 +1,5 @@
-"""Settings chosen at first launch: study time per day (R11) and plan (R25)."""
+"""Settings chosen at first launch, study time per day (R11) and plan (R25), and the
+choices that the interface remembers."""
 
 import sqlite3
 from dataclasses import dataclass
@@ -10,27 +11,34 @@ class Settings:
     weekend_minutes: int
     plan_if: str  # "Si je rentre et que j'ai dîné…"
     plan_then: str  # "… alors je lance la file du jour à 19 h"
+    sidebar_collapsed: bool = False
 
 
 def get_settings(connection: sqlite3.Connection) -> Settings | None:
     """The saved settings, or None as long as the first launch is not completed."""
     row = connection.execute(
-        "SELECT weekday_minutes, weekend_minutes, plan_if, plan_then FROM settings"
+        "SELECT weekday_minutes, weekend_minutes, plan_if, plan_then, sidebar_collapsed"
+        " FROM settings"
     ).fetchone()
-    return Settings(*row) if row else None
+    if row is None:
+        return None
+    weekday_minutes, weekend_minutes, plan_if, plan_then, sidebar_collapsed = row
+    return Settings(
+        weekday_minutes, weekend_minutes, plan_if, plan_then, bool(sidebar_collapsed)
+    )
 
 
 def save_settings(connection: sqlite3.Connection, settings: Settings) -> None:
     """Save the settings, replacing the previous ones."""
     with connection:
         connection.execute(
-            "INSERT OR REPLACE INTO settings"
-            " (id, weekday_minutes, weekend_minutes, plan_if, plan_then)"
-            " VALUES (1, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO settings (id, weekday_minutes, weekend_minutes,"
+            " plan_if, plan_then, sidebar_collapsed) VALUES (1, ?, ?, ?, ?, ?)",
             (
                 settings.weekday_minutes,
                 settings.weekend_minutes,
                 settings.plan_if,
                 settings.plan_then,
+                settings.sidebar_collapsed,
             ),
         )

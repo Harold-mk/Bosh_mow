@@ -82,6 +82,7 @@ def test_settings_are_null_until_the_first_launch_is_completed(
         "weekend_minutes": 180,
         "plan_if": "je rentre et que j'ai dîné",
         "plan_then": "je lance la file du jour à 19 h",
+        "sidebar_collapsed": False,
     }
 
     assert client.get("/api/settings").json() is None

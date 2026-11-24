@@ -1,39 +1,63 @@
 import { useEffect, useState } from 'react'
+import { HashRouter, Navigate, Route, Routes } from 'react-router'
+import { getSettings, messageOf, type Settings } from './api.ts'
+import { Layout } from './components/Layout.tsx'
+import { Notice } from './components/Notice.tsx'
+import { NewSubjectScreen } from './screens/new-subject/NewSubjectScreen.tsx'
+import { SubjectScreen } from './screens/subject/SubjectScreen.tsx'
+import { SubjectsScreen } from './screens/subjects/SubjectsScreen.tsx'
+import { WelcomeScreen } from './screens/welcome/WelcomeScreen.tsx'
 
-/** Response of GET /api/health. */
-type Health = { status: string; version: string }
-
-type HealthState =
+/** The settings are read once, at start: without them, the first launch is not done. */
+type Start =
   | { kind: 'loading' }
-  | { kind: 'ok'; health: Health }
+  | { kind: 'ready'; settings: Settings | null }
   | { kind: 'error'; message: string }
 
-function App() {
-  const [state, setState] = useState<HealthState>({ kind: 'loading' })
+/** The screens and their addresses. Bienvenue comes first, until the settings exist. */
+export function App() {
+  const [start, setStart] = useState<Start>({ kind: 'loading' })
 
   useEffect(() => {
-    fetch('/api/health')
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.json() as Promise<Health>
-      })
-      .then((health) => setState({ kind: 'ok', health }))
-      .catch((error: unknown) => setState({ kind: 'error', message: String(error) }))
+    getSettings().then(
+      (settings) => setStart({ kind: 'ready', settings }),
+      (reason: unknown) => setStart({ kind: 'error', message: messageOf(reason) }),
+    )
   }, [])
 
+  if (start.kind === 'loading') return null
+  if (start.kind === 'error') {
+    return (
+      <div className="app">
+        <Notice>{start.message}</Notice>
+      </div>
+    )
+  }
+  const { settings } = start
+  const setSettings = (changed: Settings) => setStart({ kind: 'ready', settings: changed })
+
   return (
-    <main>
-      <h1>BOSH MOW</h1>
-      {state.kind === 'loading' && <p>Connexion au serveur…</p>}
-      {state.kind === 'ok' && (
-        <p>
-          Serveur : {state.health.status} — version{' '}
-          <span className="mono">{state.health.version}</span>
-        </p>
-      )}
-      {state.kind === 'error' && <p>Serveur injoignable ({state.message})</p>}
-    </main>
+    <HashRouter>
+      <Routes>
+        <Route
+          path="/bienvenue"
+          element={settings ? <Navigate to="/matieres" replace /> : <WelcomeScreen />}
+        />
+        <Route
+          element={
+            settings ? (
+              <Layout settings={settings} onSettingsChange={setSettings} />
+            ) : (
+              <Navigate to="/bienvenue" replace />
+            )
+          }
+        >
+          <Route path="/matieres" element={<SubjectsScreen />} />
+          <Route path="/matieres/nouvelle" element={<NewSubjectScreen />} />
+          <Route path="/matieres/:subjectId" element={<SubjectScreen />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/matieres" replace />} />
+      </Routes>
+    </HashRouter>
   )
 }
-
-export default App
