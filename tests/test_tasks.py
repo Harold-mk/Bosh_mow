@@ -65,6 +65,21 @@ def test_task_waits_while_the_engine_is_unavailable(db: sqlite3.Connection) -> N
     assert (task.status, task.attempts, task.error) == ("done", 2, None)
 
 
+def test_a_task_that_no_worker_handles_fails_and_says_so(
+    db: sqlite3.Connection,
+) -> None:
+    task_id = add_task(db, "t99", {})
+
+    run_next_task(db, {"echo": echo}, NOW)
+
+    task = get_task(db, task_id)
+    assert task is not None
+    assert (task.status, task.error) == (
+        "failed",
+        "No worker handles the tasks of kind 't99'.",
+    )
+
+
 def test_waiting_task_can_be_tried_again_at_once(db: sqlite3.Connection) -> None:
     task_id = add_task(db, "echo", {"text": "bonjour"})
     run_next_task(db, {"echo": unavailable}, NOW)

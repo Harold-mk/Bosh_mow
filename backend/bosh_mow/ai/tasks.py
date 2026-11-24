@@ -98,6 +98,8 @@ def run_next_task(
     task_id, kind, data = row
     _update(connection, task_id, "status = 'running', attempts = attempts + 1")
     try:
+        if kind not in handlers:
+            raise LookupError(f"No worker handles the tasks of kind {kind!r}.")
         result = handlers[kind](connection, json.loads(data))
     except EngineUnavailable as error:
         _update(
