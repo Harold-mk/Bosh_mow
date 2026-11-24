@@ -134,6 +134,35 @@ def test_s1_a_subject_is_created_from_its_files_and_the_proposal_of_claude(
     ]
 
 
+def test_a_draft_left_being_created_is_taken_up_again(client: TestClient) -> None:
+    assert client.get("/api/draft").json() is None
+    subject_id = new_draft(client)
+    upload(client, subject_id)
+
+    draft = client.get("/api/draft").json()
+
+    assert (draft["id"], draft["name"]) == (subject_id, "Statistiques")
+    assert [file["file_name"] for file in draft["resources"]] == ["notes.md"]
+
+
+def test_the_name_and_date_of_a_draft_can_change(client: TestClient) -> None:
+    subject_id = new_draft(client)
+    changed = {"name": "Statistique descriptive", "exam_date": "2027-02-01"}
+
+    response = client.put(f"/api/subjects/{subject_id}", json=changed)
+
+    assert response.status_code == 200
+    subject = response.json()
+    assert (subject["name"], subject["exam_date"]) == (
+        "Statistique descriptive",
+        "2027-02-01",
+    )
+    handwritten = {"objectives": ["Être capable de A"], "chapters": [], "glossary": []}
+    client.post(f"/api/subjects/{subject_id}/validate", json=handwritten)
+    assert client.put(f"/api/subjects/{subject_id}", json=changed).status_code == 409
+    assert client.get("/api/draft").json() is None
+
+
 def test_a_subject_needs_a_name(client: TestClient) -> None:
     response = client.post(
         "/api/subjects", json={"name": "  ", "exam_date": "2027-01-15"}
@@ -172,7 +201,7 @@ def test_a_proposal_needs_a_file(client: TestClient) -> None:
     subject_id = new_draft(client)
 
     assert client.post(f"/api/subjects/{subject_id}/proposal").status_code == 400
-    assert client.get(f"/api/subjects/{subject_id}/proposal").status_code == 404
+    assert client.get(f"/api/subjects/{subject_id}/proposal").json() is None
 
 
 def test_a_proposal_waits_while_claude_is_unavailable(

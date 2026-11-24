@@ -33,8 +33,10 @@ from bosh_mow.subjects.repository import (
     SubjectSummary,
     activate_subject,
     create_draft_subject,
+    get_draft,
     get_subject,
     list_subjects,
+    update_draft,
 )
 
 router = APIRouter(prefix="/api")
@@ -119,6 +121,20 @@ def new_subject(new: NewSubject, db: Database) -> Subject:
     return _subject(db, create_draft_subject(db, new.name, new.exam_date))
 
 
+@router.get("/draft")
+def draft(db: Database) -> Subject | None:
+    """The subject left being created, to take it up again; null if there is none."""
+    return get_draft(db)
+
+
+@router.put("/subjects/{subject_id}")
+def change_draft(subject_id: int, new: NewSubject, db: Database) -> Subject:
+    """Change the name or the exam date of a subject still being created."""
+    _draft(db, subject_id)
+    update_draft(db, subject_id, new.name, new.exam_date)
+    return _subject(db, subject_id)
+
+
 @router.post("/subjects/{subject_id}/files", status_code=201)
 def add_file(
     subject_id: int, file: UploadFile, db: Database, folder: Folder
@@ -147,13 +163,17 @@ def ask_proposal(subject_id: int, db: Database) -> ProposalState:
     if subject.chapters:
         raise HTTPException(409, "Cette matière a déjà ses chapitres.")
     request_proposal(db, subject_id)
-    return _proposal(db, subject_id)
+    state = proposal_state(db, subject_id)
+    assert state is not None  # a proposal was just asked for
+    return state
 
 
 @router.get("/subjects/{subject_id}/proposal")
-def proposal(subject_id: int, db: Database) -> ProposalState:
-    """Where the proposal stands: the interface asks until it is done or failed."""
-    return _proposal(db, subject_id)
+def proposal(subject_id: int, db: Database) -> ProposalState | None:
+    """Where the proposal stands, or null if none was asked for. The interface asks
+    again until it is done or failed."""
+    _subject(db, subject_id)
+    return proposal_state(db, subject_id)
 
 
 @router.post("/subjects/{subject_id}/validate")
@@ -183,11 +203,3 @@ def _draft(db: sqlite3.Connection, subject_id: int) -> Subject:
     if subject.status != "draft":
         raise HTTPException(409, "Cette matière est déjà créée.")
     return subject
-
-
-def _proposal(db: sqlite3.Connection, subject_id: int) -> ProposalState:
-    _subject(db, subject_id)
-    state = proposal_state(db, subject_id)
-    if state is None:
-        raise HTTPException(404, "Aucune proposition n'a été demandée.")
-    return state

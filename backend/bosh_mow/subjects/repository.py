@@ -113,6 +113,30 @@ def create_draft_subject(
     return cursor.lastrowid
 
 
+def update_draft(
+    connection: sqlite3.Connection, subject_id: int, name: str, exam_date: date
+) -> None:
+    """Change the name or the exam date of a subject still being created."""
+    if not name.strip():
+        raise ValueError("A subject needs a name.")
+    with connection:
+        changed = connection.execute(
+            "UPDATE subject SET name = ?, exam_date = ?"
+            " WHERE id = ? AND status = 'draft'",
+            (name.strip(), exam_date.isoformat(), subject_id),
+        ).rowcount
+    if not changed:
+        raise ValueError(f"Subject {subject_id} is not a draft.")
+
+
+def get_draft(connection: sqlite3.Connection) -> Subject | None:
+    """The subject left being created, to take it up again; None if there is none."""
+    row = connection.execute(
+        "SELECT id FROM subject WHERE status = 'draft' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return get_subject(connection, row[0]) if row else None
+
+
 def add_resource(
     connection: sqlite3.Connection,
     subject_id: int,

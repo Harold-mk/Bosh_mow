@@ -61,7 +61,11 @@ export function SubjectScreen() {
               ))}
             </ol>
           ) : (
-            <PendingSplit subjectId={subject.id} />
+            <PendingSplit
+              subjectId={subject.id}
+              files={subject.resources}
+              onValidated={setSubject}
+            />
           )}
         </section>
         <div className="subject-side">

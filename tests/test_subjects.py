@@ -17,8 +17,10 @@ from bosh_mow.subjects.repository import (
     add_resource,
     create_draft_subject,
     get_document,
+    get_draft,
     get_subject,
     list_subjects,
+    update_draft,
 )
 
 EXAM = date(2027, 1, 15)
@@ -191,6 +193,36 @@ def test_glossary_keeps_each_term_once_in_the_order_given(
     subject = get_subject(db, subject_id)
     assert subject is not None
     assert subject.glossary == ["p-value", "DataFrame"]
+
+
+def test_the_last_draft_is_the_one_taken_up_again(db: sqlite3.Connection) -> None:
+    assert get_draft(db) is None
+    make_draft(db)
+    last, _ = make_draft(db)
+
+    draft = get_draft(db)
+
+    assert draft is not None
+    assert draft.id == last
+    activate_subject(db, last, ["Être capable de A"], [])
+    draft = get_draft(db)
+    assert draft is not None
+    assert draft.id != last
+
+
+def test_only_a_draft_changes_its_name_and_date(db: sqlite3.Connection) -> None:
+    subject_id, _ = make_draft(db)
+
+    update_draft(db, subject_id, "  Statistiques  ", date(2027, 2, 1))
+
+    subject = get_subject(db, subject_id)
+    assert subject is not None
+    assert (subject.name, subject.exam_date) == ("Statistiques", date(2027, 2, 1))
+    with pytest.raises(ValueError, match="name"):
+        update_draft(db, subject_id, " ", EXAM)
+    activate_subject(db, subject_id, ["Être capable de A"], [])
+    with pytest.raises(ValueError, match="not a draft"):
+        update_draft(db, subject_id, "Autre nom", EXAM)
 
 
 def test_subject_needs_a_name(db: sqlite3.Connection) -> None:

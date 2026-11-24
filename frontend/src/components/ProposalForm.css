@@ -1,0 +1,130 @@
+/* The proposal to correct: objectives, then chapters (mockup Nouvelle, last step). */
+.proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.proposal-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--color-background);
+  line-height: 1.5;
+}
+
+.proposal-intro svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.proposal-intro strong {
+  font-weight: 600;
+}
+
+.proposal-number {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.proposal-objectives {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.proposal-objective {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 32px;
+  column-gap: 8px;
+  align-items: center;
+}
+
+.proposal-add {
+  align-self: flex-start;
+  padding: 0 12px;
+}
+
+.proposal-chapters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+}
+
+.proposal-chapters ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.proposal-chapters li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.proposal-chapter {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A title that reads as text and becomes a field when it is edited. */
+.proposal-title {
+  height: 32px;
+  min-width: 0;
+  margin-left: -8px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  font: 600 13px var(--font-text);
+  color: var(--color-text);
+  transition:
+    background-color var(--transition),
+    box-shadow var(--transition);
+}
+
+.proposal-title:hover {
+  background: var(--color-background);
+}
+
+.proposal-title:focus {
+  outline: none;
+  background: var(--color-card);
+  box-shadow: inset 0 0 0 1.5px var(--color-text);
+}
+
+.proposal-pages {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proposal-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.proposal-tag {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: var(--color-background);
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}

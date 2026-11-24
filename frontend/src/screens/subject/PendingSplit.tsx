@@ -1,47 +1,18 @@
-import { useEffect, useState } from 'react'
-import { askProposal, getProposal, messageOf, type ProposalState } from '../../api.ts'
+import { validateSubject, type Resource, type Subject } from '../../api.ts'
 import { Notice } from '../../components/Notice.tsx'
+import { ProposalForm } from '../../components/ProposalForm.tsx'
+import { useProposal } from '../../useProposal.ts'
 
-const FOLLOW_MS = 3000 // how often the page asks where the proposal stands
+type Props = {
+  subjectId: number
+  files: Resource[]
+  onValidated: (subject: Subject) => void
+}
 
-/** The split into chapters of a subject validated without it (R2): where Claude's
- *  proposal stands, followed until it is ready or has failed. */
-export function PendingSplit({ subjectId }: { subjectId: number }) {
-  const [state, setState] = useState<ProposalState>()
-  const [error, setError] = useState<string>()
-  const [request, setRequest] = useState(0) // a new request restarts the follow-up
-
-  useEffect(() => {
-    let stopped = false
-    let timer = 0
-    async function follow() {
-      try {
-        const current = await getProposal(subjectId)
-        if (stopped) return
-        setState(current)
-        setError(undefined)
-        if (current.status === 'pending' || current.status === 'running') {
-          timer = window.setTimeout(follow, FOLLOW_MS)
-        }
-      } catch (reason) {
-        if (!stopped) setError(messageOf(reason))
-      }
-    }
-    follow()
-    return () => {
-      stopped = true
-      window.clearTimeout(timer)
-    }
-  }, [subjectId, request])
-
-  async function ask() {
-    try {
-      await askProposal(subjectId)
-      setRequest((n) => n + 1)
-    } catch (reason) {
-      setError(messageOf(reason))
-    }
-  }
+/** The split into chapters of a subject created with handwritten objectives (R2):
+ *  where Claude's proposal stands, then the proposal to correct and validate. */
+export function PendingSplit({ subjectId, files, onValidated }: Props) {
+  const { state, error, ask } = useProposal(subjectId)
 
   const askButton = (label: string) => (
     <button type="button" className="button secondary" onClick={ask}>
@@ -53,16 +24,28 @@ export function PendingSplit({ subjectId }: { subjectId: number }) {
     return (
       <div className="pending-split">
         <Notice>{error}</Notice>
-        {askButton('Demander le découpage à Claude')}
+        {askButton('Redemander une proposition')}
       </div>
     )
   }
-  if (!state) return null
-  if (state.status === 'done') {
+  if (state === undefined) return null
+  if (state === null) {
     return (
       <div className="pending-split">
-        <p>La proposition de découpage est prête.</p>
+        <p>Aucun découpage n'a encore été demandé à Claude.</p>
+        {askButton('Demander le découpage')}
       </div>
+    )
+  }
+  if (state.status === 'done' && state.proposal) {
+    return (
+      <ProposalForm
+        initial={state.proposal}
+        files={files}
+        intro="La proposition de Claude est prête. Ses objectifs remplacent ceux que tu as écrits en attendant : relis-les et corrige-les avant de valider."
+        submitLabel="Valider le découpage"
+        onSubmit={async (proposal) => onValidated(await validateSubject(subjectId, proposal))}
+      />
     )
   }
   if (state.status === 'failed') {

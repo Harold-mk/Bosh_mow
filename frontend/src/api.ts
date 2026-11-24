@@ -82,6 +82,16 @@ export function createSubject(name: string, examDate: string): Promise<Subject> 
   return request('POST', '/subjects', { name, exam_date: examDate })
 }
 
+/** The subject left being created, to take it up again; null if there is none. */
+export function getDraft(): Promise<Subject | null> {
+  return request('GET', '/draft')
+}
+
+/** Change the name or the exam date of a subject still being created. */
+export function updateDraft(subjectId: number, name: string, examDate: string): Promise<Subject> {
+  return request('PUT', `/subjects/${subjectId}`, { name, exam_date: examDate })
+}
+
 export function addFile(subjectId: number, file: File): Promise<Resource> {
   const form = new FormData()
   form.append('file', file)
@@ -97,7 +107,8 @@ export function askProposal(subjectId: number): Promise<ProposalState> {
   return request('POST', `/subjects/${subjectId}/proposal`)
 }
 
-export function getProposal(subjectId: number): Promise<ProposalState> {
+/** Where the proposal stands; null if none was asked for. */
+export function getProposal(subjectId: number): Promise<ProposalState | null> {
   return request('GET', `/subjects/${subjectId}/proposal`)
 }
 

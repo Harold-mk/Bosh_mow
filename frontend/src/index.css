@@ -255,6 +255,29 @@ a:hover {
   color: var(--color-ghost-disabled-text);
 }
 
+/* A round button with only an icon, such as "Retirer". */
+.icon-button {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.icon-button:hover {
+  background: var(--color-line);
+  color: var(--color-text);
+}
+
 /* A row of buttons under a form, the primary one first. */
 .actions {
   display: flex;
