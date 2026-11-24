@@ -92,3 +92,20 @@ def test_unavailable_engine_is_logged_and_reported(tmp_path: Path) -> None:
         gateway.ask("demo_v1", {}, Answer)
 
     assert [entry["outcome"] for entry in logged(tmp_path)] == ["unavailable"]
+
+
+def test_images_go_to_the_engine_with_each_try(tmp_path: Path) -> None:
+    gateway, engine = make_gateway(
+        tmp_path, {"word": "chat", "count": 2}, {"word": "chat", "count": 4}
+    )
+    png = b"fake PNG image"
+
+    gateway.ask(
+        "demo_v1",
+        {},
+        Answer,
+        check=lambda answer: [] if answer.count == 4 else ["count: 4 letters"],
+        images=[png],
+    )
+
+    assert engine.images == [[png], [png]]

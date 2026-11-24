@@ -1,13 +1,22 @@
 """Tests of the Claude adapter, without ever calling Claude: command, key, answer."""
 
+import base64
 import json
 
 import pytest
 
-from bosh_mow.ai.claude import claude_command, environment_without_api_key, parse_answer
+from bosh_mow.ai.claude import (
+    claude_command,
+    environment_without_api_key,
+    parse_answer,
+    user_message,
+)
 from bosh_mow.ai.gateway import EngineUnavailable
 
-# The shape of what `claude -p --output-format json` printed in a real call (shortened).
+# The lines that `claude -p --output-format stream-json` printed in a real call
+# (shortened): the answer is on the last one, of type "result".
+INIT = {"type": "system", "subtype": "init", "tools": ["StructuredOutput"]}
+TURN = {"type": "assistant", "message": {"content": []}}
 SUCCESS = {
     "type": "result",
     "subtype": "success",
@@ -17,8 +26,12 @@ SUCCESS = {
 }
 
 
-def test_structured_answer_is_read_from_the_output() -> None:
-    assert parse_answer(json.dumps(SUCCESS), "") == {"ok": True}
+def stream(*events: dict[str, object]) -> str:
+    return "".join(json.dumps(event) + "\n" for event in events)
+
+
+def test_structured_answer_is_read_from_the_result_line() -> None:
+    assert parse_answer(stream(INIT, TURN, SUCCESS), "") == {"ok": True}
 
 
 def test_error_reported_by_claude_code_means_unavailable() -> None:
@@ -30,7 +43,7 @@ def test_error_reported_by_claude_code_means_unavailable() -> None:
     }
 
     with pytest.raises(EngineUnavailable, match="usage limit"):
-        parse_answer(json.dumps(failure), "")
+        parse_answer(stream(INIT, failure), "")
 
 
 def test_output_that_is_not_json_means_unavailable() -> None:
@@ -55,11 +68,27 @@ def test_claude_runs_without_tools_settings_or_saved_session() -> None:
 
     assert command[:2] == ["claude", "-p"]
     for flag, value in [
-        ("--output-format", "json"),
+        ("--input-format", "stream-json"),
+        ("--output-format", "stream-json"),
         ("--tools", ""),
         ("--setting-sources", ""),
         ("--model", "sonnet"),
     ]:
         assert command[command.index(flag) + 1] == value
+    assert "--verbose" in command
     assert "--strict-mcp-config" in command
     assert "--no-session-persistence" in command
+
+
+def test_images_come_before_the_prompt_in_the_message() -> None:
+    png = b"fake PNG image"
+
+    line = user_message("Décris cette page.", [png])
+
+    assert line.endswith("\n")
+    message = json.loads(line)
+    assert message["type"] == "user"
+    image, text = message["message"]["content"]
+    assert image["source"]["media_type"] == "image/png"
+    assert base64.b64decode(image["source"]["data"]) == png
+    assert text == {"type": "text", "text": "Décris cette page."}

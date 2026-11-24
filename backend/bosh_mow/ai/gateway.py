@@ -7,7 +7,7 @@ with the reasons; after that, the failure is reported, never hidden.
 
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,8 +30,11 @@ class InvalidAnswer(Exception):
 class Engine(Protocol):
     name: str
 
-    def run(self, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
-        """Answer the prompt with a JSON object that follows the JSON schema."""
+    def run(
+        self, prompt: str, schema: dict[str, Any], images: Sequence[bytes] = ()
+    ) -> dict[str, Any]:
+        """Answer the prompt, about the PNG `images` if any, with a JSON object that
+        follows the JSON schema."""
         ...
 
 
@@ -47,10 +50,12 @@ class Gateway:
         data: dict[str, Any],
         schema: type[T],
         check: Callable[[T], list[str]] | None = None,
+        images: Sequence[bytes] = (),
     ) -> T:
         """Ask the engine, with the prompt file `prompt_name` (e.g. "t1_v1") and `data`.
 
-        `check` lists what breaks the rules of the task (nothing when all is well).
+        `check` lists what breaks the rules of the task (nothing when all is well);
+        `images` are PNG images that come with the prompt, such as a page (T11).
         """
         prompt = (self.prompts_dir / f"{prompt_name}.md").read_text(encoding="utf-8")
         prompt += (
@@ -60,7 +65,7 @@ class Gateway:
         for _ in range(2):  # the first try, then a single retry
             started = time.monotonic()
             try:
-                raw = self.engine.run(prompt, schema.model_json_schema())
+                raw = self.engine.run(prompt, schema.model_json_schema(), images)
             except EngineUnavailable as error:
                 self._log(prompt_name, started, "unavailable", str(error))
                 raise
