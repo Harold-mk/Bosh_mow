@@ -8,7 +8,7 @@ import pytest
 from fake_ai import FakeEngine
 from pydantic import BaseModel
 
-from bosh_mow.ai.gateway import EngineUnavailable, Gateway, InvalidAnswer
+from bosh_mow.ai.gateway import EngineTimeout, EngineUnavailable, Gateway, InvalidAnswer
 
 
 class Answer(BaseModel):
@@ -109,3 +109,26 @@ def test_images_go_to_the_engine_with_each_try(tmp_path: Path) -> None:
     )
 
     assert engine.images == [[png], [png]]
+
+
+def test_a_call_too_long_is_tried_once_more(tmp_path: Path) -> None:
+    gateway, _ = make_gateway(
+        tmp_path,
+        EngineTimeout("Claude n'a pas répondu à temps."),
+        {"word": "chat", "count": 4},
+    )
+
+    assert gateway.ask("demo_v1", {}, Answer) == Answer(word="chat", count=4)
+    assert [entry["outcome"] for entry in logged(tmp_path)] == ["timeout", "accepted"]
+
+
+def test_two_calls_too_long_make_the_call_fail(tmp_path: Path) -> None:
+    gateway, _ = make_gateway(
+        tmp_path,
+        EngineTimeout("Claude n'a pas répondu à temps."),
+        EngineTimeout("Claude n'a pas répondu à temps."),
+    )
+
+    with pytest.raises(EngineTimeout):
+        gateway.ask("demo_v1", {}, Answer)
+    assert [entry["outcome"] for entry in logged(tmp_path)] == ["timeout", "timeout"]

@@ -23,6 +23,11 @@ class EngineUnavailable(Exception):
     """The engine cannot answer now (not installed, offline, Pro limit): try later."""
 
 
+class EngineTimeout(Exception):
+    """The engine took too long: the question may be too big. Tried once more, then
+    the task fails, instead of waiting for an engine that is there."""
+
+
 class InvalidAnswer(Exception):
     """The answer broke its contract twice in a row."""
 
@@ -62,13 +67,18 @@ class Gateway:
             f"\n\n<input>\n{json.dumps(data, ensure_ascii=False, indent=2)}\n</input>\n"
         )
         problems: list[str] = []
-        for _ in range(2):  # the first try, then a single retry
+        for attempt in range(2):  # the first try, then a single retry
             started = time.monotonic()
             try:
                 raw = self.engine.run(prompt, schema.model_json_schema(), images)
             except EngineUnavailable as error:
                 self._log(prompt_name, started, "unavailable", str(error))
                 raise
+            except EngineTimeout as error:
+                self._log(prompt_name, started, "timeout", str(error))
+                if attempt == 1:
+                    raise
+                continue
             try:
                 answer = schema.model_validate(raw)
                 problems = check(answer) if check else []

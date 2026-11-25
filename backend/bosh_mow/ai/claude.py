@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from bosh_mow.ai.gateway import EngineUnavailable
+from bosh_mow.ai.gateway import EngineTimeout, EngineUnavailable
 
 SYSTEM_PROMPT = (
     "You are a component of a study app. Follow the instructions and answer only "
@@ -51,7 +51,7 @@ class ClaudeEngine:
             except FileNotFoundError as error:
                 raise EngineUnavailable("Claude Code n'est pas installé.") from error
             except subprocess.TimeoutExpired as error:
-                raise EngineUnavailable("Claude n'a pas répondu à temps.") from error
+                raise EngineTimeout("Claude n'a pas répondu à temps.") from error
         return parse_answer(completed.stdout, completed.stderr)
 
 

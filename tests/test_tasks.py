@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from bosh_mow.ai.gateway import EngineUnavailable, InvalidAnswer
+from bosh_mow.ai.gateway import EngineTimeout, EngineUnavailable, InvalidAnswer
 from bosh_mow.ai.tasks import (
     RETRY_DELAY,
     add_task,
@@ -103,6 +103,20 @@ def test_latest_task_is_the_last_one_asked_for_the_subject(
     assert task is not None
     assert task.id == last
     assert latest_task(db, "t1", subject_id + 1) is None
+
+
+def too_long(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
+    raise EngineTimeout("Claude n'a pas répondu à temps.")
+
+
+def test_a_task_too_long_fails_instead_of_waiting(db: sqlite3.Connection) -> None:
+    task_id = add_task(db, "t2", {})
+
+    run_next_task(db, {"t2": too_long}, NOW)
+
+    task = get_task(db, task_id)
+    assert task is not None
+    assert (task.status, task.error) == ("failed", "Claude n'a pas répondu à temps.")
 
 
 def test_invalid_answer_makes_the_task_fail_and_say_why(db: sqlite3.Connection) -> None:
