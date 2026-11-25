@@ -15,6 +15,7 @@ from bosh_mow.content.repository import (
     mark_studied,
     report_question,
     save_notions,
+    save_questions,
 )
 from bosh_mow.subjects.repository import (
     Chapter,
@@ -115,6 +116,24 @@ def test_the_notions_of_a_chapter_are_saved_once(db: sqlite3.Connection) -> None
 
     with pytest.raises(ValueError, match="already has its notions"):
         save_notions(db, chapter_id, [NewNotion("Autre", "…", file_id, 1, 20)])
+
+
+def test_the_questions_of_a_notion_are_saved_once_written(
+    db: sqlite3.Connection,
+) -> None:
+    chapter_id, file_id = make_chapter(db)
+    (notion_id,) = save_notions(
+        db, chapter_id, [NewNotion("Variance", "Pourquoi n − 1.", file_id, 4, 6)]
+    )
+
+    save_questions(db, notion_id, [MCQ, VALUE])
+
+    assert [q.statement for q in get_questions(db, notion_id)] == [
+        MCQ.statement,
+        VALUE.statement,
+    ]
+    with pytest.raises(ValueError, match="already has its questions"):
+        save_questions(db, notion_id, [MCQ])
 
 
 def test_r5_a_question_keeps_to_the_known_formats(db: sqlite3.Connection) -> None:

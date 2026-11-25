@@ -318,6 +318,6 @@ def test_validated_chapters_lead_to_the_description_of_pages_in_images(
     ]
     queued = db.execute("SELECT input FROM ai_task WHERE kind = 't11'").fetchall()
     assert queued == [(f'{{"resource_id": {file_id}, "page": 2}}',)]
-    # Then chapter 1 is prepared, after the descriptions it needs (R38).
+    # Then chapter 1 is cut into notions, after the descriptions it needs (R38).
     kinds = [kind for (kind,) in db.execute("SELECT kind FROM ai_task ORDER BY id")]
-    assert kinds == ["t11", "t2"]
+    assert kinds == ["t11", "t1_pass2"]

@@ -59,7 +59,8 @@ def main() -> None:
     handlers = {
         proposal.TASK: proposal.proposal_handler(gateway),
         descriptions.TASK: descriptions.description_handler(gateway, folder.resources),
-        preparation.TASK: preparation.preparation_handler(gateway),
+        preparation.NOTIONS_TASK: preparation.notions_handler(gateway),
+        preparation.QUESTIONS_TASK: preparation.questions_handler(gateway),
     }
     start_worker(folder.database, handlers, threading.Event())
     start_server(api, port)

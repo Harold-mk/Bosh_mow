@@ -8,13 +8,18 @@ import pymupdf
 import pytest
 from fake_ai import FakeEngine
 from fastapi.testclient import TestClient
-from test_preparation import make_chapters, preparation
+from test_preparation import make_chapters, notions, questions
 from test_sessions import make_due, make_subject
 
 from bosh_mow.ai.gateway import Gateway
 from bosh_mow.ai.tasks import run_next_task
 from bosh_mow.api import create_app
-from bosh_mow.content.preparation import TASK, preparation_handler
+from bosh_mow.content.preparation import (
+    NOTIONS_TASK,
+    QUESTIONS_TASK,
+    notions_handler,
+    questions_handler,
+)
 from bosh_mow.paths import DataFolder
 
 
@@ -33,8 +38,8 @@ def test_r3_a_chapter_is_prepared_then_its_notions_are_validated(
 
     asked = client.post(f"{chapter}/preparation")
     assert (asked.status_code, asked.json()["status"]) == (202, "pending")
-    gateway = Gateway(FakeEngine([preparation()]), tmp_path / "log")
-    run_next_task(db, {TASK: preparation_handler(gateway)}, datetime.now(UTC))
+    gateway = Gateway(FakeEngine([notions()]), tmp_path / "log")
+    run_next_task(db, {NOTIONS_TASK: notions_handler(gateway)}, datetime.now(UTC))
     proposed = client.get(f"{chapter}/preparation").json()
     assert proposed["status"] == "done"
     assert [notion["title"] for notion in proposed["notions"]] == [
@@ -44,10 +49,30 @@ def test_r3_a_chapter_is_prepared_then_its_notions_are_validated(
     saved = client.post(f"{chapter}/notions", json={"titles": ["Variance"]}).json()
 
     (notion,) = saved["notions"]
-    assert (notion["title"], len(notion["questions"])) == ("Variance", 7)
-    assert client.get(chapter).json() == saved
+    assert (notion["title"], notion["questions"]) == ("Variance", [])
+    assert notion["writing"] == {"status": "pending", "error": None}
+    gateway = Gateway(FakeEngine([questions()]), tmp_path / "log")
+    run_next_task(db, {QUESTIONS_TASK: questions_handler(gateway)}, datetime.now(UTC))
+    (notion,) = client.get(chapter).json()["notions"]
+    assert (len(notion["questions"]), notion["writing"]["status"]) == (7, "done")
     again = client.post(f"{chapter}/preparation")
     assert again.status_code == 409  # already validated
+
+
+def test_the_questions_of_a_notion_can_be_asked_again(
+    client: TestClient, db: sqlite3.Connection
+) -> None:
+    notion_id, _ = make_subject(db)
+    assert client.post(f"/api/notions/{notion_id}/questions").status_code == 409
+
+    db.execute("DELETE FROM question WHERE notion_id = ?", (notion_id,))  # failed
+    db.commit()
+    asked = client.post(f"/api/notions/{notion_id}/questions")
+
+    assert (asked.status_code, asked.json()) == (
+        202,
+        {"status": "pending", "error": None},
+    )
 
 
 def test_a_wrong_question_can_be_reported(

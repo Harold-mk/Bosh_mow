@@ -5,11 +5,16 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fsrs import Card, State
-from test_preparation import OTHER_STATEMENTS, STATEMENTS, notion, preparation
+from test_preparation import OTHER_STATEMENTS, STATEMENTS, questions
 
 from bosh_mow.ai.schemas import T2Answer
-from bosh_mow.content.preparation import to_notions
-from bosh_mow.content.repository import get_notions, get_questions, save_notions
+from bosh_mow.content.preparation import to_questions
+from bosh_mow.content.repository import (
+    NewNotion,
+    get_notions,
+    get_questions,
+    save_notions,
+)
 from bosh_mow.study.repository import add_thought, decide_thought, get_card, save_card
 from bosh_mow.study.sessions import (
     answer,
@@ -58,8 +63,9 @@ def make_subject(
         ],
     )
     first, _ = chapter_ids(db, subject_id)
-    proposal = T2Answer.model_validate(preparation(notion(statements, file=file_id)))
-    (notion_id,) = save_notions(db, first, to_notions(proposal))
+    written = to_questions(T2Answer.model_validate(questions(statements)))
+    variance = NewNotion("Variance", "Pourquoi n − 1.", file_id, 1, 6, written)
+    (notion_id,) = save_notions(db, first, [variance])
     reviews = [
         q.id
         for q in get_questions(db, notion_id)
@@ -219,7 +225,7 @@ def test_starting_a_chapter_asks_for_the_next_one(db: sqlite3.Connection) -> Non
     start_notion(db, notion_id, TODAY)  # asked once only
 
     tasks = db.execute("SELECT kind, input FROM ai_task").fetchall()
-    assert tasks == [("t2", '{"chapter_id": 2}')]
+    assert tasks == [("t1_pass2", '{"chapter_id": 2}')]  # its notions
 
 
 def test_r17_a_session_ends_once_its_thoughts_are_sorted(
@@ -248,3 +254,19 @@ def test_the_next_notion_comes_from_the_closest_exam(db: sqlite3.Connection) -> 
     following = next_notion(db)
     assert following is not None
     assert following.id == later
+
+
+def test_a_notion_is_studied_once_its_questions_are_written(
+    db: sqlite3.Connection,
+) -> None:
+    ready, _ = make_subject(db, exam=date(2027, 3, 1))
+    waiting, _ = make_subject(db, "Probabilités", date(2027, 1, 10), OTHER_STATEMENTS)
+    db.execute("DELETE FROM question WHERE notion_id = ?", (waiting,))  # not written
+    db.commit()
+
+    following = next_notion(db)
+
+    assert following is not None
+    assert following.id == ready  # the closer exam waits for its questions
+    with pytest.raises(ValueError, match="pas encore prêtes"):
+        start_notion(db, waiting, TODAY)

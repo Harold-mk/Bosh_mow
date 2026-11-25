@@ -19,8 +19,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from bosh_mow import __version__
 from bosh_mow.content.preparation import (
     PreparationState,
+    QuestionsState,
     preparation_state,
+    questions_state,
     request_preparation,
+    request_questions,
     validate_notions,
 )
 from bosh_mow.content.repository import get_notions, get_questions, report_question
@@ -262,7 +265,8 @@ class NotionWithQuestions:
     first_page: int
     last_page: int
     studied: bool
-    questions: list[QuestionSummary]
+    questions: list[QuestionSummary]  # [] while Claude writes them
+    writing: QuestionsState | None  # where their writing stands; null if never asked
 
 
 @dataclass(frozen=True)
@@ -292,7 +296,7 @@ def preparation(subject_id: int, number: int, db: Database) -> PreparationState 
 
 @router.post("/subjects/{subject_id}/chapters/{number}/preparation", status_code=202)
 def prepare_chapter(subject_id: int, number: int, db: Database) -> PreparationState:
-    """Préparer ce chapitre: ask Claude for its notions and questions (T2)."""
+    """Préparer ce chapitre: ask Claude for its notions (T1 pass 2)."""
     chapter_id = _chapter_id(db, subject_id, number)
     if get_notions(db, chapter_id):
         raise HTTPException(409, "Les notions de ce chapitre sont déjà validées.")
@@ -306,11 +310,22 @@ def prepare_chapter(subject_id: int, number: int, db: Database) -> PreparationSt
 def validate_chapter(
     subject_id: int, number: int, notions: NotionTitles, db: Database
 ) -> ChapterView:
-    """Save the notions proposed for a chapter, with the titles the student gave them,
-    and their questions (R3)."""
+    """Save the notions proposed for a chapter, with the titles the student gave them
+    (R3); Claude then writes the questions of each one (T2)."""
     chapter_id = _chapter_id(db, subject_id, number)
     validate_notions(db, chapter_id, notions.titles)
     return _chapter_view(db, chapter_id)
+
+
+@router.post("/notions/{notion_id}/questions", status_code=202)
+def write_questions(notion_id: int, db: Database) -> QuestionsState:
+    """Ask Claude again for the questions of a notion, after a failure (T2)."""
+    if get_questions(db, notion_id):
+        raise HTTPException(409, "Cette notion a déjà ses questions.")
+    request_questions(db, notion_id)
+    state = questions_state(db, notion_id)
+    assert state is not None  # it was just asked for
+    return state
 
 
 @router.post("/questions/{question_id}/report", status_code=204)
@@ -498,6 +513,7 @@ def _chapter_view(db: sqlite3.Connection, chapter_id: int) -> ChapterView:
                 QuestionSummary(q.id, q.role, q.format, q.statement, q.reported)
                 for q in get_questions(db, notion.id)
             ],
+            questions_state(db, notion.id),
         )
         for notion in get_notions(db, chapter_id)
     ]

@@ -92,29 +92,22 @@ def save_notions(
                     notion.last_page,
                 ),
             ).lastrowid
-            connection.executemany(
-                "INSERT INTO question (notion_id, position, role, type, level, format,"
-                " difficulty, statement, first_page, last_page, content)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        notion_id,
-                        position,
-                        question.role,
-                        question.type,
-                        question.level,
-                        question.format,
-                        question.difficulty,
-                        question.statement,
-                        question.first_page,
-                        question.last_page,
-                        json.dumps(question.content, ensure_ascii=False),
-                    )
-                    for position, question in enumerate(notion.questions, start=1)
-                ],
-            )
+            _insert_questions(connection, notion_id, notion.questions)
             notion_ids.append(notion_id)
     return notion_ids
+
+
+def save_questions(
+    connection: sqlite3.Connection, notion_id: int, questions: Sequence[NewQuestion]
+) -> None:
+    """Save the questions Claude wrote on a validated notion (T2); a notion gets its
+    questions once."""
+    if connection.execute(
+        "SELECT 1 FROM question WHERE notion_id = ?", (notion_id,)
+    ).fetchone():
+        raise ValueError(f"Notion {notion_id} already has its questions.")
+    with connection:
+        _insert_questions(connection, notion_id, questions)
 
 
 def get_notions(connection: sqlite3.Connection, chapter_id: int) -> list[Notion]:
@@ -163,6 +156,32 @@ def mark_studied(connection: sqlite3.Connection, notion_id: int) -> None:
             " WHERE id = ? AND studied_at IS NULL",
             (notion_id,),
         )
+
+
+def _insert_questions(
+    connection: sqlite3.Connection, notion_id: int, questions: Sequence[NewQuestion]
+) -> None:
+    connection.executemany(
+        "INSERT INTO question (notion_id, position, role, type, level, format,"
+        " difficulty, statement, first_page, last_page, content)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                notion_id,
+                position,
+                question.role,
+                question.type,
+                question.level,
+                question.format,
+                question.difficulty,
+                question.statement,
+                question.first_page,
+                question.last_page,
+                json.dumps(question.content, ensure_ascii=False),
+            )
+            for position, question in enumerate(questions, start=1)
+        ],
+    )
 
 
 _SELECT_QUESTION = (

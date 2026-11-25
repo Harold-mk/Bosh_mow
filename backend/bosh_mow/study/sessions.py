@@ -211,10 +211,11 @@ def finish(
 
 
 def next_notion(connection: sqlite3.Connection) -> NotionToStudy | None:
-    """The next notion to study: the first one not studied yet, in the active subject
-    with the closest exam that has a validated one."""
+    """The next notion to study: the first one not studied yet whose questions are
+    written, in the active subject with the closest exam that has one."""
     row = connection.execute(
         f"{_SELECT_NOTION} WHERE s.status = 'active' AND n.studied_at IS NULL"
+        " AND EXISTS (SELECT 1 FROM question q WHERE q.notion_id = n.id)"
         " ORDER BY s.exam_date, s.id, c.number, n.number LIMIT 1"
     ).fetchone()
     return NotionToStudy(*row) if row else None
@@ -236,6 +237,8 @@ def start_notion(
         for question in get_questions(connection, notion_id)
         if question.format == "mcq" and not question.reported
     ]
+    if not questions:
+        raise ValueError("Les questions de cette notion ne sont pas encore prêtes.")
     session_id = start_session(connection, "notion", day, notion_id=notion_id)
     _prepare_next_chapter(connection, notion_id)
     return NotionSession(

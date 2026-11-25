@@ -64,7 +64,13 @@ class T2Question(BaseModel):
     frequent_errors: list[str] | None = None
 
 
-class T2Notion(BaseModel):
+class T2Answer(BaseModel):
+    """T2: the 7 questions of one notion."""
+
+    questions: list[T2Question]
+
+
+class T1Pass2Notion(BaseModel):
     """A notion: one idea studied in 10 minutes at most, on pages of one file (R13)."""
 
     title: str  # in French
@@ -72,14 +78,25 @@ class T2Notion(BaseModel):
     file: int
     first_page: int
     last_page: int
+
+
+class T1Pass2Answer(BaseModel):
+    """T1 pass 2: the notions of a chapter."""
+
+    notions: list[T1Pass2Notion]
+    boundary_alert: str | None  # if the bounds of the chapter seem misplaced
+
+
+class CombinedT2Notion(T1Pass2Notion):
     questions: list[T2Question]
 
 
-class T2Answer(BaseModel):
-    """T1 pass 2 and T2: the notions of a chapter and the questions on each notion."""
+class CombinedT2Answer(BaseModel):
+    """The first version of lot 2: notions and their questions in a single call per
+    chapter, too long for big chapters. Its proposals are still read."""
 
-    notions: list[T2Notion]
-    boundary_alert: str | None  # if the bounds of the chapter seem misplaced
+    notions: list[CombinedT2Notion]
+    boundary_alert: str | None
 
 
 class T11Answer(BaseModel):
