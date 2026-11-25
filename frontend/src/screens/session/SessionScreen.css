@@ -1,0 +1,432 @@
+/* The session takes the whole window, without the sidebar (R16): a slim header, then
+   the question card and the chrono card side by side (docs/maquettes/Main, Minimum). */
+
+.focus {
+  min-height: 100vh;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.focus-header,
+.focus-main {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.focus-header {
+  min-height: 40px; /* as high with its button as without, at the end */
+  padding: 4px 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.focus-header .label {
+  margin-left: 14px;
+}
+
+.focus-header .button {
+  margin-left: auto;
+}
+
+.focus-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+/* The session stays airy, for concentration: its cards have 24 px inside. */
+.session-card {
+  flex: 999 1 560px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  line-height: 1.5;
+}
+
+.session-side {
+  flex: 1 1 300px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Time up: the only dark block, as a banner above the question. */
+.time-up {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--color-text);
+  color: #ffffff;
+  line-height: 1.45;
+}
+
+.time-up svg {
+  flex: none;
+}
+
+.time-up strong {
+  font-weight: 600;
+}
+
+/* The question: its place on the left, its result on the right, then its statement as
+   the title of the card. */
+.question-head {
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.badge {
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.correct {
+  background: var(--color-correct-background);
+  color: var(--color-correct);
+}
+
+.badge.review {
+  background: var(--color-review-background);
+  color: var(--color-review);
+}
+
+.statement {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.statement h1 {
+  font-size: 16px;
+  letter-spacing: normal;
+  line-height: 1.4;
+}
+
+/* Options: gray at rest, white with a black ring once chosen, as the fields. */
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.option {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background: var(--color-background);
+  font: 400 13px/1.45 var(--font-text);
+  color: var(--color-text);
+  text-align: left;
+}
+
+button.option {
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    box-shadow var(--transition);
+}
+
+button.option:hover:not([aria-checked='true']) {
+  background: var(--color-pressed);
+}
+
+.option[aria-checked='true'] {
+  background: var(--color-card);
+  box-shadow: inset 0 0 0 1.5px var(--color-text);
+}
+
+.option-key {
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-card);
+  color: var(--color-text-secondary);
+  font: 500 12px var(--font-mono);
+}
+
+.option[aria-checked='true'] .option-key {
+  background: var(--color-text);
+  color: #ffffff;
+}
+
+/* After the answer: the right option in green, a wrong choice in orange, each with its
+   word; the explanations stay in black. */
+.option.result {
+  align-items: start;
+}
+
+.option.right {
+  background: var(--color-correct-background);
+}
+
+.option.wrong {
+  background: var(--color-review-background);
+}
+
+.option.right .option-key {
+  background: var(--color-correct);
+  color: #ffffff;
+}
+
+.option.wrong .option-key {
+  background: var(--color-review);
+  color: #ffffff;
+}
+
+.option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 3px;
+}
+
+.option.right .option-text,
+.option.wrong .option-text {
+  font-weight: 600;
+}
+
+.option-explanation {
+  font-size: 12.5px;
+}
+
+.option-explanation strong {
+  font-weight: 600;
+}
+
+.option.right .option-explanation strong {
+  color: var(--color-correct);
+}
+
+.option.wrong .option-explanation strong {
+  color: var(--color-review);
+}
+
+.priority strong {
+  font-weight: 600;
+}
+
+/* Confidence (R6): three pills with a gauge of dots and their key. */
+.confidence {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.confidence-question {
+  font-weight: 500;
+}
+
+.levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.level {
+  height: 40px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--color-background);
+  font: 500 13px var(--font-text);
+  color: var(--color-text);
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    box-shadow var(--transition);
+}
+
+.level:hover:not([aria-checked='true']) {
+  background: var(--color-pressed);
+}
+
+.level[aria-checked='true'] {
+  background: var(--color-card);
+  box-shadow: inset 0 0 0 1.5px var(--color-text);
+}
+
+.gauge {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.gauge span {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-border);
+}
+
+.gauge span.on {
+  background: var(--color-text);
+}
+
+.shortcut {
+  padding: 0 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  font: 500 11px/16px var(--font-mono);
+  color: var(--color-text-secondary);
+}
+
+/* R16: the box to tick before Commencer appears. */
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-text);
+}
+
+/* The chrono: 60 dots in a ring of 180 px, the time left in their middle. */
+.ring {
+  position: relative;
+  width: 180px;
+  height: 180px;
+}
+
+.ring > span {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-line);
+}
+
+.ring > span.on {
+  background: var(--color-text);
+}
+
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.clock {
+  font: 500 40px/1 var(--font-mono);
+  letter-spacing: -0.02em;
+}
+
+.progress {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+}
+
+.progress-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.progress-dots span {
+  flex: 1 1 0;
+  max-width: 8px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--color-line);
+}
+
+.progress-dots span.on {
+  background: var(--color-text);
+}
+
+/* J'ai décroché and the parking: discreet, always under the chrono. */
+.side-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+
+.side-actions .button {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+
+.parking {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* R17: the thoughts to plan or drop before the end. */
+.thoughts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.thought {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--color-background);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* In a gray block, the field is white. */
+.thought .field {
+  width: auto;
+  background: var(--color-card);
+}
+
+.ended {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}

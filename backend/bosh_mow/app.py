@@ -30,6 +30,19 @@ DEV_FRONTEND_URL = "http://localhost:5173"
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
+class WindowApi:
+    """What the interface may ask of its window, as window.pywebview.api in JavaScript:
+    a study session runs in full screen (R16)."""
+
+    def __init__(self) -> None:
+        self._fullscreen = False
+
+    def fullscreen(self, on: bool) -> None:
+        if on != self._fullscreen:
+            webview.windows[0].toggle_fullscreen()
+            self._fullscreen = on
+
+
 def main() -> None:
     """Prepare the database, start the worker and the API server, open the window."""
     parser = argparse.ArgumentParser(prog="bosh_mow")
@@ -64,7 +77,7 @@ def main() -> None:
     }
     start_worker(folder.database, handlers, threading.Event())
     start_server(api, port)
-    webview.create_window("Bosh mow", url)
+    webview.create_window("Bosh mow", url, js_api=WindowApi())
     webview.start()  # returns when the window is closed, which ends the app
 
 

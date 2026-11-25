@@ -6,8 +6,7 @@ import { KeyFigure } from '../../components/KeyFigure.tsx'
 import { Notice } from '../../components/Notice.tsx'
 import { PageHeader } from '../../components/PageHeader.tsx'
 import { dayLabel } from '../../format.ts'
-
-const SECONDS_PER_QUESTION = 36 // as in study/queue.py, for the time shown
+import { queueMinutes } from '../../study.ts'
 
 /** Accueil: the day, and the button that starts the session. Only what exists is
  *  shown: the programme of the evening, evaluations and charts come later. */
@@ -41,7 +40,7 @@ export function HomeScreen() {
             unit={day.due < 2 ? 'question' : 'questions'}
             context={
               day.due > 0
-                ? `environ ${Math.ceil((day.due * SECONDS_PER_QUESTION) / 60)} minutes`
+                ? `environ ${queueMinutes(day.due)} minutes`
                 : 'rien à réviser : place à une notion nouvelle'
             }
           />

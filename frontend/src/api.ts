@@ -78,6 +78,103 @@ export function getToday(): Promise<Today> {
   return request('GET', '/today')
 }
 
+/** How sure the student is of an answer, given before validating it (R6). */
+export type Confidence = 'sure' | 'hesitant' | 'guess'
+
+/** An option as it is asked; its number in the question goes back with the answer. */
+export type OptionToAsk = { number: number; text: string }
+
+/** A question as it is asked: without its correction, its options in a random order. */
+export type QuestionToAsk = {
+  id: number
+  role: 'pretest' | 'review'
+  statement: string // in English (R5)
+  options: OptionToAsk[]
+  subject: string
+  resource_id: number // where its answer is (R4)
+  first_page: number
+  last_page: number
+}
+
+/** The correction of an answer, given at once and without AI (T5). */
+export type Correction = {
+  correct: boolean
+  correct_option: number
+  explanations: string[] // of each option, by number from 1, in French
+  priority: boolean // a mistake made while sure (R10)
+}
+
+/** A thought put aside during a session, to plan or drop before its end (R17). */
+export type Thought = { id: number; text: string }
+
+/** The next notion to study, in the subject with the closest exam. */
+export type NotionToStudy = {
+  id: number
+  title: string
+  summary: string
+  subject: string
+  chapter: string
+  resource_id: number
+  first_page: number
+  last_page: number
+}
+
+/** Start the daily queue: the session, and how many questions it has. */
+export function startQueue(): Promise<{ id: number; planned: number }> {
+  return request('POST', '/sessions')
+}
+
+/** The next question of the daily queue; null once it is empty. */
+export function nextQuestion(sessionId: number): Promise<QuestionToAsk | null> {
+  return request('GET', `/sessions/${sessionId}/next`)
+}
+
+/** Answer a question: `chosen_option` null is "Je ne sais pas", without confidence. */
+export function giveAnswer(
+  sessionId: number,
+  answer: {
+    question_id: number
+    chosen_option: number | null
+    confidence: Confidence | null
+    seconds: number
+  },
+): Promise<Correction> {
+  return request('POST', `/sessions/${sessionId}/answers`, answer)
+}
+
+/** End a session, once its thoughts are sorted (R17): whether the day is successful. */
+export function endSession(
+  sessionId: number,
+  completed: boolean,
+): Promise<{ minimum_done: boolean }> {
+  return request('POST', `/sessions/${sessionId}/end`, { completed })
+}
+
+/** Put a thought aside without leaving the question (key P, R17). */
+export function noteThought(sessionId: number, text: string): Promise<Thought> {
+  return request('POST', `/sessions/${sessionId}/thoughts`, { text })
+}
+
+/** The thoughts of a session still to plan or drop. */
+export function getThoughts(sessionId: number): Promise<Thought[]> {
+  return request('GET', `/sessions/${sessionId}/thoughts`)
+}
+
+/** Plan a thought at a local date and time 'YYYY-MM-DDTHH:MM', or drop it (null). */
+export function decideThought(thoughtId: number, plannedFor: string | null): Promise<void> {
+  return request('POST', `/thoughts/${thoughtId}/decision`, { planned_for: plannedFor })
+}
+
+/** J'ai décroché: counted, and the session goes on (R18). */
+export function noteWandering(sessionId: number, questionId: number | null): Promise<void> {
+  return request('POST', `/sessions/${sessionId}/wanderings`, { question_id: questionId })
+}
+
+/** The next notion to study; null if no validated notion has its questions yet. */
+export function getNextNotion(): Promise<NotionToStudy | null> {
+  return request('GET', '/notions/next')
+}
+
 export function getSettings(): Promise<Settings | null> {
   return request('GET', '/settings')
 }

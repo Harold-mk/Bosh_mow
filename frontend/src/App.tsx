@@ -5,6 +5,7 @@ import { Layout } from './components/Layout.tsx'
 import { Notice } from './components/Notice.tsx'
 import { HomeScreen } from './screens/home/HomeScreen.tsx'
 import { NewSubjectScreen } from './screens/new-subject/NewSubjectScreen.tsx'
+import { NotionScreen } from './screens/notion/NotionScreen.tsx'
 import { SessionScreen } from './screens/session/SessionScreen.tsx'
 import { SubjectScreen } from './screens/subject/SubjectScreen.tsx'
 import { SubjectsScreen } from './screens/subjects/SubjectsScreen.tsx'
@@ -43,6 +44,11 @@ export function App() {
       <Routes>
         {/* Only reached without settings: Bienvenue itself leads on to the first subject. */}
         <Route path="/bienvenue" element={<WelcomeScreen onDone={setSettings} />} />
+        {/* A session takes the whole window, without the sidebar (R16). */}
+        <Route
+          path="/session"
+          element={settings ? <SessionScreen /> : <Navigate to="/bienvenue" replace />}
+        />
         <Route
           element={
             settings ? (
@@ -53,7 +59,7 @@ export function App() {
           }
         >
           <Route path="/accueil" element={<HomeScreen />} />
-          <Route path="/session" element={<SessionScreen />} />
+          <Route path="/notion" element={<NotionScreen />} />
           <Route path="/matieres" element={<SubjectsScreen />} />
           <Route path="/matieres/nouvelle" element={<NewSubjectScreen />} />
           <Route path="/matieres/:subjectId" element={<SubjectScreen />} />
