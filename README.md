@@ -8,10 +8,14 @@ SQLite), React + TypeScript and pywebview. Spaced repetition uses
 [FSRS](https://github.com/open-spaced-repetition/py-fsrs); the AI features use Claude
 (through Claude Code) and a local model with Ollama.
 
-> **Status:** early development. The first part is ready: creating a subject from its files,
-> with objectives and chapters proposed by Claude. Studying comes next.
+> **Status:** early development. The first two parts are ready: setting up a subject from
+> its files, then studying it with questions written by Claude and reviewed with spaced
+> repetition. The other kinds of questions with their grading, exercises and exams come
+> next.
 
 ## What it does today
+
+### Setting up a subject
 
 - **First launch:** three study habits, your study time per day (weekdays and weekends) and
   an "if… then…" plan that anchors your daily session.
@@ -32,8 +36,38 @@ SQLite), React + TypeScript and pywebview. Spaced repetition uses
 - **Your subjects:** the list of subjects, closest exam first, and the page of each subject
   with the days left until the exam, its objectives, chapters and documents.
 
-Coming next: AI-generated questions and the daily review session (FSRS), grading,
-exercises, exams, statistics and planning.
+### Studying
+
+- **Notions and questions:** once the chapters are validated, Claude cuts the first chapter
+  into notions, the ideas to learn, each with its pages. You validate them, renaming any
+  title, then Claude writes the questions of each notion in the background. The next
+  chapter is prepared when you start the last prepared one, or when you ask for it.
+  "Signaler" removes a wrong question.
+- **The daily review:** the questions due today, mixing your subjects, in a 15-minute
+  full-screen session. Each answer is graded by the code, without AI, and you say how sure
+  you were ("Sûr", "Hésitant", "Au hasard"): both set the next review date with FSRS. A
+  missed question comes back later in the session; what is left after 15 minutes waits for
+  the next day.
+- **A new notion:** after the review, the next notion of the subject whose exam is closest:
+  a warm-up question on a notion already learned, two pretest questions, a guided reading
+  of its pages (the text is hidden after 10 minutes: you look for the answers from memory),
+  a test of three questions, then a 5-minute break before the next notion.
+- **Focus:** a "Ne pas déranger" check and full screen before each session, a parking for
+  passing thoughts (P key) sorted at the end, and "J'ai décroché" when your mind wanders.
+- **Home:** the session of the day, the questions due today and your successful days, the
+  days when the minimum session was done; the sidebar shows today's minutes toward that
+  15-minute minimum. No screen counts missed days or late questions: the app only warns
+  before a second missed day in a row, and after an absence it proposes the minimum
+  session alone.
+- **Reader:** the original pages of your PDFs, with their outline, page navigation and
+  zoom, opened from a subject or a chapter. From a correction ("Voir le cours") or the
+  guided reading, it opens at the right page over the session, which waits underneath.
+
+For now, sessions ask only the multiple-choice questions; the other kinds (a value, a short
+answer, "why?") arrive with their grading.
+
+Coming next: grading of the other kinds of questions, exercises, exams, statistics, planning,
+translation and an assistant in the reader.
 
 ## How it works
 
@@ -43,9 +77,13 @@ exercises, exams, statistics and planning.
   untouched copy of each imported file, and a log of the AI calls.
 - Claude is called through `claude -p` with your Claude subscription, never with an API
   key. It runs without any tool, settings or MCP server: it only sees what the app sends.
-  AI tasks run in the background, one at a time, and wait while Claude is unavailable.
+  AI tasks run in the background, one at a time, and wait while Claude is unavailable. A
+  call that runs too long is tried once more, then its task is reported as failed.
+- A chapter is prepared in short calls: its notions first, then, once you validate them,
+  the questions of each notion, one call per notion.
 - Each AI task has a versioned prompt in [`prompts/`](prompts), a Pydantic output schema
   and automatic checks. The tests never call an AI: they use a fake one.
+- The reader draws only the PDF pages near the screen, so that a long book stays light.
 
 ## Requirements
 
@@ -94,4 +132,5 @@ ruff check . ; ruff format .
 [MIT](LICENSE) © Harold Mokam
 
 PDF files are read with [PyMuPDF](https://pymupdf.readthedocs.io), which is licensed
-under the GNU AGPL-3.0 (or a commercial license from Artifex).
+under the GNU AGPL-3.0 (or a commercial license from Artifex). The reader draws PDF pages
+with [PDF.js](https://mozilla.github.io/pdf.js/), licensed under the Apache License 2.0.
