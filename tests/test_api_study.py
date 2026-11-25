@@ -212,3 +212,16 @@ def test_the_reader_gets_a_file_untouched_and_its_outline(client: TestClient) ->
         {"level": 1, "title": "Variance", "page": 2},
     ]
     assert client.get("/api/resources/999/file").status_code == 404
+    assert client.get(f"/api/resources/{file_id}").json() == {
+        "id": file_id,
+        "subject_id": subject["id"],
+        "file_name": "stats.pdf",
+        "kind": "pdf",
+        "page_count": 3,
+    }
+    pages = client.get(f"/api/resources/{file_id}/pages").json()
+    assert [(page["number"], page["text"].strip()) for page in pages] == [
+        (1, "Page 1"),
+        (2, "Page 2"),
+        (3, "Page 3"),
+    ]

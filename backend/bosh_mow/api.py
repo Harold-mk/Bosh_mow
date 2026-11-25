@@ -509,6 +509,29 @@ def study_notion(notion_id: int, db: Database) -> NotionSession:
 # The reader: the imported files, untouched, and their outline (R4)
 
 
+@dataclass(frozen=True)
+class ResourceView:
+    """An imported file with its subject: the reader offers its other files."""
+
+    id: int
+    subject_id: int
+    file_name: str
+    kind: str
+    page_count: int  # pages of a PDF, sections of a Markdown file
+
+
+@router.get("/resources/{resource_id}")
+def resource(resource_id: int, db: Database) -> ResourceView:
+    return _resource(db, resource_id)
+
+
+@router.get("/resources/{resource_id}/pages")
+def resource_pages(resource_id: int, db: Database) -> list[PageText]:
+    """Every page of a file as text: the reader shows a Markdown file so."""
+    found = _resource(db, resource_id)
+    return get_pages(db, resource_id, 1, found.page_count)
+
+
 @router.get("/resources/{resource_id}/file")
 def resource_file(resource_id: int, db: Database, folder: Folder) -> FileResponse:
     row = db.execute(
@@ -568,6 +591,18 @@ def _chapter_view(db: sqlite3.Connection, chapter_id: int) -> ChapterView:
         for notion in get_notions(db, chapter_id)
     ]
     return ChapterView(chapter_id, number, title, role, notions)
+
+
+def _resource(db: sqlite3.Connection, resource_id: int) -> ResourceView:
+    row = db.execute(
+        "SELECT id, subject_id, file_name, kind,"
+        " (SELECT COUNT(*) FROM page p WHERE p.resource_id = r.id)"
+        " FROM resource r WHERE id = ?",
+        (resource_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Ce fichier n'existe pas.")
+    return ResourceView(*row)
 
 
 def _notion(db: sqlite3.Connection, notion_id: int) -> NotionToStudy:
