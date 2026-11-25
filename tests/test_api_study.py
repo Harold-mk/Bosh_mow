@@ -75,6 +75,20 @@ def test_the_questions_of_a_notion_can_be_asked_again(
     )
 
 
+def test_the_chapters_of_a_subject_say_where_their_notions_stand(
+    client: TestClient, db: sqlite3.Connection
+) -> None:
+    make_subject(db)  # chapter 1 has one validated notion
+    client.post("/api/subjects/1/chapters/2/preparation")
+
+    chapters = client.get("/api/subjects/1/chapters").json()
+
+    assert [
+        (c["number"], c["title"], c["notions"], c["studied"], c["preparation"])
+        for c in chapters
+    ] == [(1, "Dispersion", 1, 0, None), (2, "Quartiles", 0, 0, "pending")]
+
+
 def test_a_wrong_question_can_be_reported(
     client: TestClient, db: sqlite3.Connection
 ) -> None:

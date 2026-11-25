@@ -3,6 +3,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router'
 import { getSettings, messageOf, type Settings } from './api.ts'
 import { Layout } from './components/Layout.tsx'
 import { Notice } from './components/Notice.tsx'
+import { ChapterScreen } from './screens/chapter/ChapterScreen.tsx'
 import { HomeScreen } from './screens/home/HomeScreen.tsx'
 import { NewSubjectScreen } from './screens/new-subject/NewSubjectScreen.tsx'
 import { NotionScreen } from './screens/notion/NotionScreen.tsx'
@@ -63,6 +64,7 @@ export function App() {
           <Route path="/matieres" element={<SubjectsScreen />} />
           <Route path="/matieres/nouvelle" element={<NewSubjectScreen />} />
           <Route path="/matieres/:subjectId" element={<SubjectScreen />} />
+          <Route path="/matieres/:subjectId/chapitres/:number" element={<ChapterScreen />} />
         </Route>
         <Route path="*" element={<Navigate to="/accueil" replace />} />
       </Routes>

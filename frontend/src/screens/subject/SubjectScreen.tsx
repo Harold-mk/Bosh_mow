@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 import {
+  type ChapterSummary,
   getDescriptions,
   getSubject,
+  listChapters,
   messageOf,
   type DescriptionCount,
   type Subject,
@@ -37,6 +39,14 @@ export function SubjectScreen() {
     getDescriptions(subjectId).then(setDescriptions, () => {})
   }, [subjectId, split])
 
+  // Where the notions of each chapter stand: proposed, validated, studied.
+  const [summaries, setSummaries] = useState<ChapterSummary[]>([])
+  useEffect(() => {
+    if (!split) return
+    // Only progress lines: if they cannot be read, the rows show none.
+    listChapters(subjectId).then(setSummaries, () => {})
+  }, [subjectId, split])
+
   if (error) {
     return (
       <>
@@ -66,12 +76,18 @@ export function SubjectScreen() {
           {subject.chapters.length > 0 ? (
             <ol className="subject-list">
               {subject.chapters.map((chapter, k) => (
-                <li key={k}>
-                  <span className="mono subject-number">{k + 1}</span>
-                  <span className="subject-item">
-                    <span className="subject-item-title">{chapter.title}</span>
-                    <span className="hint">{chapter.role === 'core' ? 'Cœur' : 'Secondaire'}</span>
-                  </span>
+                <li key={k} className="subject-link">
+                  <Link to={`/matieres/${subject.id}/chapitres/${k + 1}`} className="subject-row">
+                    <span className="mono subject-number">{k + 1}</span>
+                    <span className="subject-item">
+                      <span className="subject-item-title">{chapter.title}</span>
+                      <span className="hint">
+                        {[chapter.role === 'core' ? 'Cœur' : 'Secondaire', notionsText(summaries[k])]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ol>
@@ -120,6 +136,23 @@ export function SubjectScreen() {
       </div>
     </>
   )
+}
+
+/** Where the notions of a chapter stand, in a few words; '' before they are asked. */
+function notionsText(summary: ChapterSummary | undefined): string {
+  if (!summary) return ''
+  if (summary.notions > 0) return `Notions étudiées : ${summary.studied} / ${summary.notions}`
+  switch (summary.preparation) {
+    case 'done':
+      return 'Notions proposées, à valider'
+    case 'pending':
+    case 'running':
+      return 'Notions en préparation'
+    case 'failed':
+      return 'Notions à redemander'
+    default:
+      return ''
+  }
 }
 
 /** "12 pages de schémas décrites sur 26", or "26 pages de schémas décrites". */

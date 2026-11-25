@@ -279,8 +279,43 @@ class ChapterView:
 
 
 @dataclass(frozen=True)
+class ChapterSummary:
+    """A chapter in the list of its subject, with where its notions stand."""
+
+    number: int
+    title: str
+    role: str
+    notions: int  # validated
+    studied: int  # R13
+    preparation: str | None  # the proposal of its notions, until they are validated
+
+
+@dataclass(frozen=True)
 class NotionTitles:
     titles: list[str]  # one per notion proposed, in order
+
+
+@router.get("/subjects/{subject_id}/chapters")
+def chapters(subject_id: int, db: Database) -> list[ChapterSummary]:
+    _subject(db, subject_id)
+    summaries = []
+    for chapter_id in chapter_ids(db, subject_id):
+        number, title, role = db.execute(
+            "SELECT number, title, role FROM chapter WHERE id = ?", (chapter_id,)
+        ).fetchone()
+        notions = get_notions(db, chapter_id)
+        state = None if notions else preparation_state(db, chapter_id)
+        summaries.append(
+            ChapterSummary(
+                number,
+                title,
+                role,
+                len(notions),
+                sum(notion.studied for notion in notions),
+                state.status if state else None,
+            )
+        )
+    return summaries
 
 
 @router.get("/subjects/{subject_id}/chapters/{number}")

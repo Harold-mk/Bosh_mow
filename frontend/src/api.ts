@@ -236,6 +236,105 @@ export function getDescriptions(subjectId: number): Promise<DescriptionCount[]> 
   return request('GET', `/subjects/${subjectId}/descriptions`)
 }
 
+/** Where a background task of Claude stands, and why it waits or failed. */
+export type TaskState = {
+  status: 'pending' | 'running' | 'done' | 'failed'
+  error: string | null
+}
+
+/** A chapter in the list of its subject, with where its notions stand. */
+export type ChapterSummary = {
+  number: number
+  title: string
+  role: Role
+  notions: number // validated
+  studied: number
+  preparation: TaskState['status'] | null // the proposal of its notions, until validated
+}
+
+/** A notion as Claude proposes it, before its title is checked (R3). */
+export type ProposedNotion = {
+  title: string
+  summary: string
+  resource_id: number
+  first_page: number
+  last_page: number
+}
+
+/** Where the proposal of the notions of a chapter stands (T1 pass 2). */
+export type PreparationState = TaskState & {
+  notions: ProposedNotion[] // once done
+  boundary_alert: string | null // if the chapter seems to start or end at the wrong place
+}
+
+export type QuestionSummary = {
+  id: number
+  role: 'pretest' | 'review'
+  format: 'mcq' | 'value' | 'short' | 'open'
+  statement: string // in English (R5)
+  reported: boolean // "Signaler": out of the reviews
+}
+
+/** A validated notion, with its questions and where their writing stands (T2). */
+export type Notion = {
+  id: number
+  number: number
+  title: string
+  summary: string
+  resource_id: number
+  first_page: number
+  last_page: number
+  studied: boolean
+  questions: QuestionSummary[] // [] while Claude writes them
+  writing: TaskState | null // null if never asked, as for the first proposals
+}
+
+export type ChapterView = {
+  id: number
+  number: number
+  title: string
+  role: Role
+  notions: Notion[] // [] until they are validated
+}
+
+export function listChapters(subjectId: number): Promise<ChapterSummary[]> {
+  return request('GET', `/subjects/${subjectId}/chapters`)
+}
+
+export function getChapter(subjectId: number, number: number): Promise<ChapterView> {
+  return request('GET', `/subjects/${subjectId}/chapters/${number}`)
+}
+
+/** Where the proposal of the notions of a chapter stands; null if never asked. */
+export function getPreparation(subjectId: number, number: number): Promise<PreparationState | null> {
+  return request('GET', `/subjects/${subjectId}/chapters/${number}/preparation`)
+}
+
+/** Préparer ce chapitre: ask Claude for its notions, or try again at once. */
+export function askPreparation(subjectId: number, number: number): Promise<PreparationState> {
+  return request('POST', `/subjects/${subjectId}/chapters/${number}/preparation`)
+}
+
+/** Save the notions proposed, with their titles as checked (R3): Claude then writes
+ *  the questions of each one. */
+export function validateNotions(
+  subjectId: number,
+  number: number,
+  titles: string[],
+): Promise<ChapterView> {
+  return request('POST', `/subjects/${subjectId}/chapters/${number}/notions`, { titles })
+}
+
+/** Ask Claude again for the questions of a notion, after a failure. */
+export function askQuestions(notionId: number): Promise<TaskState> {
+  return request('POST', `/notions/${notionId}/questions`)
+}
+
+/** Signaler: take a wrong question out of the reviews. */
+export function reportQuestion(questionId: number): Promise<void> {
+  return request('POST', `/questions/${questionId}/report`)
+}
+
 /** The message to show for an error caught from a call. */
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

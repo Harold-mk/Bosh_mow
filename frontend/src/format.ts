@@ -44,6 +44,22 @@ export function daysUntil(isoDate: string): number {
   return Math.round((localDate(isoDate).getTime() - today.getTime()) / DAY)
 }
 
+/** Where a range of pages is: "p. 12–14", "sections 2–3" in a Markdown file; with the
+ *  name of the file first when `withFile` ("stats.pdf, p. 12–14"). */
+export function pagesOf(
+  file: Resource | undefined,
+  first: number,
+  last: number,
+  withFile = false,
+): string {
+  const range = first === last ? `${first}` : `${first}–${last}`
+  const pages =
+    file?.kind === 'markdown'
+      ? `${first === last ? 'section' : 'sections'} ${range}`
+      : `p. ${range}`
+  return withFile && file ? `${file.file_name}, ${pages}` : pages
+}
+
 /** "PDF · 400 pages" or "Markdown · 6 sections". */
 export function fileSummary(resource: Resource): string {
   return resource.kind === 'pdf'
