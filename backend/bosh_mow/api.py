@@ -45,6 +45,7 @@ from bosh_mow.study.sessions import (
     QuestionToAsk,
     Today,
     answer,
+    find_notion,
     finish,
     next_notion,
     next_question,
@@ -66,6 +67,7 @@ from bosh_mow.subjects.proposal import (
 )
 from bosh_mow.subjects.repository import (
     Heading,
+    PageText,
     Resource,
     Subject,
     SubjectSummary,
@@ -74,6 +76,7 @@ from bosh_mow.subjects.repository import (
     create_draft_subject,
     get_document,
     get_draft,
+    get_pages,
     get_subject,
     list_subjects,
     update_draft,
@@ -485,6 +488,18 @@ def notion_to_study(db: Database) -> NotionToStudy | None:
     return next_notion(db)
 
 
+@router.get("/notions/{notion_id}")
+def notion(notion_id: int, db: Database) -> NotionToStudy:
+    return _notion(db, notion_id)
+
+
+@router.get("/notions/{notion_id}/pages")
+def notion_pages(notion_id: int, db: Database) -> list[PageText]:
+    """The pages of a notion, for its guided reading (R13)."""
+    found = _notion(db, notion_id)
+    return get_pages(db, found.resource_id, found.first_page, found.last_page)
+
+
 @router.post("/notions/{notion_id}/session", status_code=201)
 def study_notion(notion_id: int, db: Database) -> NotionSession:
     """Start the study of a notion: pretests, reading, then test (R13)."""
@@ -553,6 +568,13 @@ def _chapter_view(db: sqlite3.Connection, chapter_id: int) -> ChapterView:
         for notion in get_notions(db, chapter_id)
     ]
     return ChapterView(chapter_id, number, title, role, notions)
+
+
+def _notion(db: sqlite3.Connection, notion_id: int) -> NotionToStudy:
+    found = find_notion(db, notion_id)
+    if found is None:
+        raise HTTPException(404, "Cette notion n'existe pas.")
+    return found
 
 
 def _subject(db: sqlite3.Connection, subject_id: int) -> Subject:

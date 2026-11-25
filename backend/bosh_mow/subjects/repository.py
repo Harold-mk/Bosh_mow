@@ -31,6 +31,15 @@ class PageContent:
 
 
 @dataclass(frozen=True)
+class PageText:
+    """A page as it is read, with what it shows when it is mostly in images (T11)."""
+
+    number: int
+    text: str
+    description: str | None
+
+
+@dataclass(frozen=True)
 class Heading:
     """A title of a file's outline; `page` is a PDF page or a Markdown section."""
 
@@ -193,6 +202,20 @@ def get_document(connection: sqlite3.Connection, resource_id: int) -> Document:
         )
     ]
     return Document(kind, pages, headings, outline)
+
+
+def get_pages(
+    connection: sqlite3.Connection, resource_id: int, first: int, last: int
+) -> list[PageText]:
+    """The pages `first` to `last` of a file, with their descriptions."""
+    rows = connection.execute(
+        "SELECT p.number, p.text, d.description FROM page p"
+        " LEFT JOIN page_description d"
+        " ON d.resource_id = p.resource_id AND d.number = p.number"
+        " WHERE p.resource_id = ? AND p.number BETWEEN ? AND ? ORDER BY p.number",
+        (resource_id, first, last),
+    ).fetchall()
+    return [PageText(*row) for row in rows]
 
 
 def delete_resource(connection: sqlite3.Connection, resource_id: int) -> None:

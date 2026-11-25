@@ -171,8 +171,23 @@ def test_studying_a_notion_through_the_api(
     started = client.post(f"/api/notions/{notion_id}/session").json()
 
     assert proposed["id"] == notion_id
+    assert started["warmup"] is None  # nothing succeeded yet (R15)
     assert len(started["pretests"]) == 2
     assert [q["id"] for q in started["tests"]] == reviews
+
+
+def test_a_notion_and_its_pages_for_the_reading(
+    client: TestClient, db: sqlite3.Connection
+) -> None:
+    notion_id, _ = make_subject(db)  # a notion of pages 1 to 6
+
+    found = client.get(f"/api/notions/{notion_id}").json()
+    pages = client.get(f"/api/notions/{notion_id}/pages").json()
+
+    assert (found["title"], found["subject"]) == ("Variance", "Statistiques")
+    assert [page["number"] for page in pages] == [1, 2, 3, 4, 5, 6]
+    assert pages[0] == {"number": 1, "text": "Page 1", "description": None}
+    assert client.get("/api/notions/99").status_code == 404
 
 
 def test_the_reader_gets_a_file_untouched_and_its_outline(client: TestClient) -> None:

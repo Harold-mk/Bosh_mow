@@ -35,6 +35,7 @@ from bosh_mow.content.repository import (
     save_questions,
 )
 from bosh_mow.subjects.descriptions import TASK as DESCRIBE_TASK
+from bosh_mow.subjects.repository import get_pages
 
 NOTIONS_PROMPT = "t1_pass2_v1"
 QUESTIONS_PROMPT = "t2_v2"
@@ -497,19 +498,12 @@ def _pages(
     connection: sqlite3.Connection, file_id: int, first: int, last: int
 ) -> list[dict[str, Any]]:
     """The text of each page of a range, with the description of a page in images."""
-    rows = connection.execute(
-        "SELECT p.number, p.text, d.description FROM page p"
-        " LEFT JOIN page_description d"
-        " ON d.resource_id = p.resource_id AND d.number = p.number"
-        " WHERE p.resource_id = ? AND p.number BETWEEN ? AND ? ORDER BY p.number",
-        (file_id, first, last),
-    ).fetchall()
     pages: list[dict[str, Any]] = []
-    for number, text, description in rows:
-        page: dict[str, Any] = {"page": number, "text": _clean(text)}
-        if description:
-            page["description"] = description
-        pages.append(page)
+    for page in get_pages(connection, file_id, first, last):
+        item: dict[str, Any] = {"page": page.number, "text": _clean(page.text)}
+        if page.description:
+            item["description"] = page.description
+        pages.append(item)
     return pages
 
 

@@ -270,3 +270,20 @@ def test_a_notion_is_studied_once_its_questions_are_written(
     assert following.id == ready  # the closer exam waits for its questions
     with pytest.raises(ValueError, match="pas encore prêtes"):
         start_notion(db, waiting, TODAY)
+
+
+def test_r15_a_notion_starts_with_a_question_already_succeeded(
+    db: sqlite3.Connection,
+) -> None:
+    first, reviews = make_subject(db)
+    second, _ = make_subject(db, "Probabilités", date(2027, 1, 10), OTHER_STATEMENTS)
+    assert start_notion(db, second, TODAY).warmup is None  # nothing succeeded yet
+
+    session = start_notion(db, first, TODAY).session_id
+    answer(db, session, reviews[0], 1, "sure", 8, NOW)  # right
+    answer(db, session, reviews[1], 2, "sure", 8, NOW)  # wrong
+
+    warmup = start_notion(db, second, TODAY).warmup
+    assert warmup is not None
+    assert warmup.id == reviews[0]
+    assert start_notion(db, first, TODAY).warmup is None  # of another notion only
