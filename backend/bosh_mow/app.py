@@ -6,6 +6,7 @@ import socket
 import threading
 import time
 from contextlib import closing
+from functools import partial
 from pathlib import Path
 
 import uvicorn
@@ -20,10 +21,15 @@ from bosh_mow.api import create_app
 from bosh_mow.content import preparation
 from bosh_mow.db.connection import connect
 from bosh_mow.db.migrate import apply_migrations
+from bosh_mow.grading.open_answers import grade_open
 from bosh_mow.paths import default_data_folder
+from bosh_mow.study import gradings
 from bosh_mow.subjects import descriptions, proposal
 
 HOST = "127.0.0.1"
+# Seconds: an open answer is graded in about 6 (T6); a call that hangs fails sooner
+# than a background task, and the grading then waits for Claude.
+GRADING_TIMEOUT = 60
 # In --dev mode the window shows the Vite dev server, which forwards /api to this
 # fixed port (see frontend/vite.config.ts).
 DEV_API_PORT = 8765
@@ -62,7 +68,10 @@ def main() -> None:
     folder = default_data_folder()
     with closing(connect(folder.database)) as connection:
         apply_migrations(connection)
-    api = create_app(folder)
+        gradings.resume_gradings(connection)  # those cut by the end of the app
+    grader = Gateway(ClaudeEngine(timeout_seconds=GRADING_TIMEOUT), folder.ai_log)
+    grade = partial(grade_open, grader)
+    api = create_app(folder, grade)
 
     if dev:
         port, url = DEV_API_PORT, DEV_FRONTEND_URL
@@ -82,6 +91,7 @@ def main() -> None:
         descriptions.TASK: descriptions.description_handler(gateway, folder.resources),
         preparation.NOTIONS_TASK: preparation.notions_handler(gateway),
         preparation.QUESTIONS_TASK: preparation.questions_handler(gateway),
+        gradings.TASK: gradings.grading_handler(grade),
     }
     start_worker(folder.database, handlers, threading.Event())
     start_server(api, port)

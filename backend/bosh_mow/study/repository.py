@@ -23,6 +23,7 @@ class NewAnswer:
     seconds: int  # time taken to answer
     chosen_option: int | None = None  # an MCQ: the option chosen, from 1
     answer_text: str | None = None  # the other formats; both None: "Je ne sais pas"
+    answered_at: datetime | None = None  # None: now; an open answer is graded later
 
 
 @dataclass(frozen=True)
@@ -77,11 +78,14 @@ def record_answer(connection: sqlite3.Connection, answer: NewAnswer) -> int:
     """Add an answer to the history, the only source of the statistics."""
     with connection:
         return connection.execute(
-            "INSERT INTO answer (question_id, session_id, chosen_option, answer_text,"
-            " correct, confidence, seconds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO answer (question_id, session_id, answered_at, chosen_option,"
+            " answer_text, correct, confidence, seconds)"
+            " VALUES (?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),"
+            " ?, ?, ?, ?, ?)",
             (
                 answer.question_id,
                 answer.session_id,
+                _iso(answer.answered_at) if answer.answered_at else None,
                 answer.chosen_option,
                 answer.answer_text,
                 answer.correct,
@@ -132,7 +136,8 @@ def day_sessions(connection: sqlite3.Connection) -> list[DaySession]:
 
 
 def due_questions(connection: sqlite3.Connection, now: datetime) -> list[DueQuestion]:
-    """The questions due by `now` in the active subjects, except the reported ones."""
+    """The questions due by `now` in the active subjects, except the reported ones and
+    those whose answer, already given, waits for its grading by Claude (T6)."""
     rows = connection.execute(
         """
         SELECT c.question_id, s.id, c.due
@@ -142,6 +147,11 @@ def due_questions(connection: sqlite3.Connection, now: datetime) -> list[DueQues
         JOIN chapter ch ON ch.id = n.chapter_id
         JOIN subject s ON s.id = ch.subject_id
         WHERE s.status = 'active' AND q.reported_at IS NULL AND c.due <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM grading g
+            WHERE g.question_id = q.id AND g.confidence IS NOT NULL
+              AND g.recorded_at IS NULL AND g.status != 'failed'
+          )
         """,
         (_iso(now),),
     ).fetchall()

@@ -1,6 +1,8 @@
 """Tests of the API of lot 2: chapters and notions, studying, the reader's files."""
 
 import sqlite3
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,6 +10,7 @@ import pymupdf
 import pytest
 from fake_ai import FakeEngine
 from fastapi.testclient import TestClient
+from test_gradings import grader
 from test_preparation import make_chapters, notions, questions
 from test_sessions import make_due, make_subject, question_of
 
@@ -157,6 +160,61 @@ def test_a_value_is_answered_with_its_text_through_the_api(
         0.01,
     )
     assert (correction["correct"], correction["expected"]) == (True, "4")
+
+
+def wait_for(done: Callable[[], bool]) -> None:
+    """Wait for what a thread does, 5 seconds at most."""
+    for _ in range(100):
+        if done():
+            return
+        time.sleep(0.05)
+    raise AssertionError("It never happened.")
+
+
+def test_an_open_answer_is_graded_at_once_through_the_api(
+    db: sqlite3.Connection, tmp_path: Path
+) -> None:
+    client = TestClient(create_app(DataFolder(tmp_path), grade=grader(True, True)))
+    notion_id, _ = make_subject(db)
+    why = question_of(db, notion_id, "open")
+    session = client.post("/api/sessions").json()["id"]
+
+    sent = client.post(
+        f"/api/sessions/{session}/gradings",
+        json={"question_id": why, "answer_text": "Outliers pull the mean."},
+    )
+    grading = f"/api/gradings/{sent.json()['id']}"
+    client.post(f"{grading}/confidence", json={"confidence": "sure", "seconds": 12})
+    wait_for(lambda: client.get(grading).json()["status"] == "done")
+    wait_for(lambda: db.execute("SELECT COUNT(*) FROM answer").fetchone() == (1,))
+
+    state = client.get(grading).json()
+    assert sent.status_code == 202
+    assert (state["correct"], state["priority"]) == (True, False)
+    assert [criterion["met"] for criterion in state["criteria"]] == [True, True]
+    assert db.execute("SELECT answer_text, confidence FROM answer").fetchall() == [
+        ("Outliers pull the mean.", "sure")
+    ]
+
+
+def test_an_open_answer_needs_claude_and_a_grading_that_exists(
+    client: TestClient, db: sqlite3.Connection
+) -> None:
+    notion_id, _ = make_subject(db)
+    why = question_of(db, notion_id, "open")
+    session = client.post("/api/sessions").json()["id"]
+
+    sent = client.post(
+        f"/api/sessions/{session}/gradings",
+        json={"question_id": why, "answer_text": "Outliers pull the mean."},
+    )
+
+    assert sent.status_code == 503  # this app has no grader
+    assert client.get("/api/gradings/7").status_code == 404
+    confided = client.post(
+        "/api/gradings/7/confidence", json={"confidence": "sure", "seconds": 3}
+    )
+    assert confided.status_code == 404
 
 
 def test_thoughts_and_wanderings_through_the_api(client: TestClient) -> None:

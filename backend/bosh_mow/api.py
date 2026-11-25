@@ -30,6 +30,14 @@ from bosh_mow.content.repository import get_notions, get_questions, report_quest
 from bosh_mow.db.connection import connect
 from bosh_mow.paths import DataFolder
 from bosh_mow.settings import Settings, get_settings, save_settings
+from bosh_mow.study.gradings import (
+    Grader,
+    GradingState,
+    give_confidence,
+    grade_in_background,
+    grading_state,
+    start_grading,
+)
 from bosh_mow.study.repository import (
     Confidence,
     Thought,
@@ -85,10 +93,12 @@ from bosh_mow.subjects.repository import (
 router = APIRouter(prefix="/api")
 
 
-def create_app(folder: DataFolder) -> FastAPI:
-    """The API, working on the data in `folder`."""
+def create_app(folder: DataFolder, grade: Grader | None = None) -> FastAPI:
+    """The API, working on the data in `folder`; `grade` grades the open answers at
+    once (T6), and without it they cannot be sent."""
     app = FastAPI(title="Bosh mow", version=__version__)
     app.state.folder = folder
+    app.state.grade = grade
     app.include_router(router)
     app.add_exception_handler(ValueError, _broken_rule)
     return app
@@ -394,6 +404,23 @@ class AnswerGiven:
 
 
 @dataclass(frozen=True)
+class OpenAnswerWritten:
+    question_id: int
+    answer_text: str
+
+
+@dataclass(frozen=True)
+class GradingStarted:
+    id: int
+
+
+@dataclass(frozen=True)
+class ConfidenceGiven:
+    confidence: Confidence
+    seconds: int
+
+
+@dataclass(frozen=True)
 class SessionEnd:
     completed: bool  # the queue emptied or its time up; the notion studied to the end
 
@@ -453,6 +480,45 @@ def give_answer(session_id: int, given: AnswerGiven, db: Database) -> Correction
         datetime.now(UTC),
         given.answer_text,
     )
+
+
+@router.post("/sessions/{session_id}/gradings", status_code=202)
+def send_open_answer(
+    session_id: int,
+    written: OpenAnswerWritten,
+    db: Database,
+    folder: Folder,
+    request: Request,
+) -> GradingStarted:
+    """Send an open answer to Claude at once (T6), while the confidence is chosen."""
+    grade: Grader | None = request.app.state.grade
+    if grade is None:
+        raise HTTPException(503, "La correction par Claude n'est pas disponible.")
+    grading_id = start_grading(db, session_id, written.question_id, written.answer_text)
+    grade_in_background(folder.database, grading_id, grade)
+    return GradingStarted(grading_id)
+
+
+@router.post("/gradings/{grading_id}/confidence")
+def confide(grading_id: int, given: ConfidenceGiven, db: Database) -> GradingState:
+    """The confidence in an open answer already sent (R6): the answer enters the
+    history once its grading is done too."""
+    _grading(db, grading_id)
+    return give_confidence(db, grading_id, given.confidence, given.seconds)
+
+
+@router.get("/gradings/{grading_id}")
+def grading(grading_id: int, db: Database) -> GradingState:
+    """Where the grading of an open answer stands: the interface asks until it is
+    done."""
+    return _grading(db, grading_id)
+
+
+def _grading(db: sqlite3.Connection, grading_id: int) -> GradingState:
+    state = grading_state(db, grading_id)
+    if state is None:
+        raise HTTPException(404, "Cette correction n'existe pas.")
+    return state
 
 
 @router.post("/sessions/{session_id}/end")
