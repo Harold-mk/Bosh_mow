@@ -165,17 +165,18 @@ export function NotionScreen() {
     else await end(started, 'done')
   }
 
-  const answer = (chosen: number | null, confidence: Confidence | null) =>
+  const answer = (chosen: number | null, text: string | null, confidence: Confidence | null) =>
     run(async () => {
       if (!study || phase.kind !== 'question') return
       const { asked } = phase
       const correction = await giveAnswer(study.session_id, {
         question_id: asked.question.id,
         chosen_option: chosen,
+        answer_text: text,
         confidence,
         seconds: Math.round((Date.now() - asked.shownAt) / 1000),
       })
-      const answered = { chosen, correction }
+      const answered = { chosen, text, correction }
       if (phase.step === 'pretest') {
         setPretested((done) => [...done, { question: asked.question, answered }])
       }
@@ -519,7 +520,7 @@ function PretestCheck({ question, answered }: Pretested) {
     <details className="detail">
       <summary>Vérifier</summary>
       {verdict} Bonne réponse : <span lang="en">{right?.text}</span>.{' '}
-      {correction.explanations[correction.correct_option - 1]}
+      {correction.explanations[(correction.correct_option ?? 0) - 1]}
     </details>
   )
 }

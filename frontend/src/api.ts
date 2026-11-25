@@ -88,8 +88,10 @@ export type OptionToAsk = { number: number; text: string }
 export type QuestionToAsk = {
   id: number
   role: 'pretest' | 'review'
+  format: 'mcq' | 'value' | 'short' // the open answer comes with its grading by Claude
   statement: string // in English (R5)
-  options: OptionToAsk[]
+  options: OptionToAsk[] // an MCQ only
+  tolerance: number | null // a value only: relative, 0.01 for 1 %
   subject: string
   resource_id: number // where its answer is (R4)
   first_page: number
@@ -99,9 +101,11 @@ export type QuestionToAsk = {
 /** The correction of an answer, given at once and without AI (T5). */
 export type Correction = {
   correct: boolean
-  correct_option: number
-  explanations: string[] // of each option, by number from 1, in French
   priority: boolean // a mistake made while sure (R10)
+  correct_option: number | null // an MCQ: the right option
+  explanations: string[] // an MCQ: of each option, by number from 1, in French
+  expected: string | null // a value or a short answer: what was expected
+  explanation: string | null // a value or a short answer: how to find it, in French
 }
 
 /** A thought put aside during a session, to plan or drop before its end (R17). */
@@ -129,12 +133,14 @@ export function nextQuestion(sessionId: number): Promise<QuestionToAsk | null> {
   return request('GET', `/sessions/${sessionId}/next`)
 }
 
-/** Answer a question: `chosen_option` null is "Je ne sais pas", without confidence. */
+/** Answer a question: an MCQ with `chosen_option`, a value or a short answer with
+ *  `answer_text`; neither is "Je ne sais pas", without confidence. */
 export function giveAnswer(
   sessionId: number,
   answer: {
     question_id: number
     chosen_option: number | null
+    answer_text: string | null
     confidence: Confidence | null
     seconds: number
   },

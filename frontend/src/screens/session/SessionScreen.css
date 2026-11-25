@@ -253,6 +253,49 @@ button.option:hover:not([aria-checked='true']) {
   font-weight: 600;
 }
 
+/* A value or a short answer: a field of one line (T5). */
+.answer-line {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.answer-line .field {
+  max-width: 360px;
+  height: 40px;
+  font-size: 14px;
+}
+
+.answer-line .field.mono {
+  font-family: var(--font-mono);
+}
+
+/* The answer written, in gray, above what was expected. */
+.given {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--color-background);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.correction {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.correction strong {
+  font-weight: 600;
+}
+
 /* Confidence (R6): three pills with a gauge of dots and their key. */
 .confidence {
   display: flex;

@@ -2,6 +2,7 @@
 
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 import pytest
 from fsrs import Card, State
@@ -13,8 +14,10 @@ from bosh_mow.content.repository import (
     NewNotion,
     get_notions,
     get_questions,
+    mark_studied,
     save_notions,
 )
+from bosh_mow.db.migrate import MIGRATIONS_DIR
 from bosh_mow.study.repository import add_thought, decide_thought, get_card, save_card
 from bosh_mow.study.sessions import (
     answer,
@@ -40,14 +43,41 @@ NOW = datetime(2026, 11, 24, 18, 0, tzinfo=UTC)
 TODAY = date(2026, 11, 24)
 
 
+def with_short_answer(raw: dict[str, Any]) -> dict[str, Any]:
+    """The questions of T2 with a short answer in place of the value."""
+    seven = raw["questions"]
+    short = {
+        **seven[5],
+        "type": "concept",
+        "format": "short",
+        "value": None,
+        "tolerance": None,
+        "accepted": ["unbiased", "sans biais"],
+        "explanation": "Diviser par n − 1 corrige le biais.",
+    }
+    return {"questions": [*seven[:5], short, *seven[6:]]}
+
+
+def question_of(db: sqlite3.Connection, notion_id: int, form: str) -> int:
+    """The id of the review question of a notion in the format `form`."""
+    (found,) = [
+        q.id
+        for q in get_questions(db, notion_id)
+        if q.format == form and q.role == "review"
+    ]
+    return found
+
+
 def make_subject(
     db: sqlite3.Connection,
     name: str = "Statistiques",
     exam: date = date(2027, 1, 15),
     statements: list[str] = STATEMENTS,
+    short: bool = False,
 ) -> tuple[int, list[int]]:
-    """A subject of two chapters, the first with one validated notion of 7 questions:
-    (notion id, ids of its 3 review MCQs)."""
+    """A subject of two chapters, the first with one validated notion of 7 questions,
+    with a value or, if `short`, a short answer: (notion id, ids of its 3 review
+    MCQs)."""
     subject_id = create_draft_subject(db, name, exam)
     pages = [PageContent(f"Page {number}") for number in range(1, 13)]
     file_id = add_resource(
@@ -63,7 +93,10 @@ def make_subject(
         ],
     )
     first, _ = chapter_ids(db, subject_id)
-    written = to_questions(T2Answer.model_validate(questions(statements)))
+    raw = questions(statements)
+    written = to_questions(
+        T2Answer.model_validate(with_short_answer(raw) if short else raw)
+    )
     variance = NewNotion("Variance", "Pourquoi n − 1.", file_id, 1, 6, written)
     (notion_id,) = save_notions(db, first, [variance])
     reviews = [
@@ -190,6 +223,107 @@ def test_r7_a_failed_question_comes_back_in_the_session(db: sqlite3.Connection) 
     assert again.id == reviews[0]
 
 
+# Values and short answers, graded without AI too (T5)
+
+
+def test_a_value_is_asked_without_options_but_with_its_tolerance(
+    db: sqlite3.Connection,
+) -> None:
+    notion_id, _ = make_subject(db)
+    value = question_of(db, notion_id, "value")
+    make_due(db, [value])
+    session_id = start_queue(db, TODAY, NOW)
+
+    question = next_question(db, session_id, NOW)
+
+    assert question is not None
+    assert (question.id, question.format, question.options, question.tolerance) == (
+        value,
+        "value",
+        [],
+        0.01,
+    )
+
+
+def test_t5_a_value_is_graded_and_its_text_saved(db: sqlite3.Connection) -> None:
+    notion_id, _ = make_subject(db)
+    value = question_of(db, notion_id, "value")
+
+    right = answer(db, None, value, None, "hesitant", 20, NOW, answer_text=" 4,0 ")
+    wrong = answer(db, None, value, None, "sure", 20, NOW, answer_text="8")
+
+    assert (right.correct, right.expected, right.correct_option) == (True, "4", None)
+    assert right.explanation is not None and right.explanation.startswith("Moyenne 4")
+    assert (wrong.correct, wrong.priority) == (False, True)  # wrong while sure (R10)
+    saved = db.execute(
+        "SELECT answer_text, chosen_option, correct FROM answer"
+    ).fetchall()
+    assert saved == [("4,0", None, 1), ("8", None, 0)]
+    assert get_card(db, value) is not None  # a review question: it has its next date
+
+
+def test_t5_a_short_answer_is_graded_with_one_typo_tolerated(
+    db: sqlite3.Connection,
+) -> None:
+    notion_id, _ = make_subject(db, short=True)
+    short = question_of(db, notion_id, "short")
+
+    typo = answer(db, None, short, None, "hesitant", 9, NOW, answer_text="Unbiassed")
+    wrong = answer(db, None, short, None, "hesitant", 9, NOW, answer_text="biased")
+
+    assert typo.correct
+    assert (wrong.correct, wrong.expected) == (False, "unbiased")
+
+
+def test_r6_a_written_answer_needs_its_confidence_but_dont_know_does_not(
+    db: sqlite3.Connection,
+) -> None:
+    notion_id, _ = make_subject(db)
+    value = question_of(db, notion_id, "value")
+
+    with pytest.raises(ValueError, match="confiance"):
+        answer(db, None, value, None, None, 5, NOW, answer_text="4")
+    assert not answer(db, None, value, None, None, 5, NOW).correct  # Je ne sais pas
+    assert not answer(db, None, value, None, None, 5, NOW, answer_text="  ").correct
+    assert db.execute("SELECT answer_text, confidence FROM answer").fetchall() == [
+        (None, None),
+        (None, None),
+    ]
+
+
+def test_an_open_answer_is_not_graded_by_the_code(db: sqlite3.Connection) -> None:
+    notion_id, _ = make_subject(db)
+    why = question_of(db, notion_id, "open")
+
+    with pytest.raises(ValueError, match="Claude"):
+        answer(db, None, why, None, "sure", 30, NOW, answer_text="Extreme values.")
+
+
+def test_the_notions_studied_before_put_their_values_in_the_reviews(
+    db: sqlite3.Connection,
+) -> None:
+    """Migration 010: a notion studied in lot 2 asked only its MCQs."""
+    studied, reviews = make_subject(db)
+    mark_studied(db, studied)
+    make_due(db, reviews)
+    later, _ = make_subject(db, "Probabilités", statements=OTHER_STATEMENTS, short=True)
+    migration = MIGRATIONS_DIR / "010_review_values_and_short_answers.sql"
+
+    db.executescript(migration.read_text(encoding="utf-8"))
+    db.executescript(migration.read_text(encoding="utf-8"))  # harmless a second time
+
+    value = question_of(db, studied, "value")
+    card = get_card(db, value)
+    assert card is not None
+    assert (card.state, card.step) == (State.Learning, 0)
+    assert card.due <= datetime.now(UTC)
+    assert get_card(db, question_of(db, studied, "open")) is None  # graded by Claude
+    assert get_card(db, question_of(db, later, "short")) is None  # not studied yet
+    answer(db, None, value, None, "sure", 9, NOW, answer_text="4")  # a card as FSRS's
+    answered = get_card(db, value)
+    assert answered is not None and answered.stability is not None
+
+
 # Studying a notion (R13)
 
 
@@ -201,7 +335,9 @@ def test_r13_a_notion_session_gives_its_pretests_then_its_test(
     session = start_notion(db, notion_id, TODAY)
 
     assert [q.role for q in session.pretests] == ["pretest", "pretest"]
-    assert [q.id for q in session.tests] == reviews  # the MCQs only, in lot 2
+    # The open answer waits for its grading by Claude.
+    assert [q.format for q in session.tests] == ["mcq", "mcq", "mcq", "value"]
+    assert [q.id for q in session.tests[:3]] == reviews
     answer(db, session.session_id, session.pretests[0].id, 1, "guess", 8, NOW)
     answer(db, session.session_id, session.tests[0].id, 1, "sure", 8, NOW)
     assert get_card(db, session.pretests[0].id) is None  # a pretest has no date

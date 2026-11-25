@@ -117,13 +117,14 @@ export function SessionScreen() {
       else await end(started, 'done')
     })
 
-  const answer = (chosen: number | null, confidence: Confidence | null) =>
+  const answer = (chosen: number | null, text: string | null, confidence: Confidence | null) =>
     run(async () => {
       if (!session || phase.kind !== 'question') return
       const { asked } = phase
       const correction = await giveAnswer(session.id, {
         question_id: asked.question.id,
         chosen_option: chosen,
+        answer_text: text,
         confidence,
         seconds: Math.round((Date.now() - asked.shownAt) / 1000),
       })
@@ -131,7 +132,7 @@ export function SessionScreen() {
       const next = await nextQuestion(session.id)
       const id = asked.question.id
       setAnswered((done) => (done.includes(id) ? done : [...done, id]))
-      setPhase({ kind: 'corrected', asked, answered: { chosen, correction }, next })
+      setPhase({ kind: 'corrected', asked, answered: { chosen, text, correction }, next })
     })
 
   const goOn = () =>

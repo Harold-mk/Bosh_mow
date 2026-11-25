@@ -8,7 +8,7 @@ next date of its question (FSRS); a pretest only primes the reading and has no d
 
 import random
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 
 from bosh_mow.content.preparation import preparation_state, request_preparation
@@ -19,7 +19,7 @@ from bosh_mow.content.repository import (
     get_questions,
     mark_studied,
 )
-from bosh_mow.grading.closed import grade_mcq, mcq_options
+from bosh_mow.grading.closed import grade_mcq, grade_short, grade_value, mcq_options
 from bosh_mow.study.days import after_absence, missed_yesterday, successful_days
 from bosh_mow.study.queue import daily_queue
 from bosh_mow.study.repository import (
@@ -39,6 +39,9 @@ from bosh_mow.study.scheduling import review
 
 _shuffle = random.Random()
 
+# The formats a session asks; the open answer joins them with its grading by Claude.
+_ASKED_FORMATS = ("mcq", "value", "short")
+
 
 @dataclass(frozen=True)
 class OptionToAsk:
@@ -52,8 +55,10 @@ class QuestionToAsk:
 
     id: int
     role: str
+    format: str  # mcq, value or short
     statement: str
-    options: list[OptionToAsk]
+    options: list[OptionToAsk]  # an MCQ only
+    tolerance: float | None  # a value only: relative, 0.01 for 1 %
     subject: str
     resource_id: int  # where its answer is (R4)
     first_page: int
@@ -63,9 +68,11 @@ class QuestionToAsk:
 @dataclass(frozen=True)
 class Correction:
     correct: bool
-    correct_option: int
-    explanations: list[str]  # of each option, by number, in French
     priority: bool  # a mistake made while sure: shown first (R10)
+    correct_option: int | None = None  # an MCQ: the right option, from 1
+    explanations: list[str] = field(default_factory=list)  # an MCQ: of each option
+    expected: str | None = None  # a value or a short answer: what was expected
+    explanation: str | None = None  # a value or a short answer: how to find it
 
 
 @dataclass(frozen=True)
@@ -96,7 +103,7 @@ class NotionSession:
     notion: NotionToStudy
     warmup: QuestionToAsk | None  # a question already succeeded, first (R15)
     pretests: list[QuestionToAsk]  # before the reading
-    tests: list[QuestionToAsk]  # after the reading, the review MCQs (R13)
+    tests: list[QuestionToAsk]  # after the reading, the review questions (R13)
 
 
 def today(connection: sqlite3.Connection, day: date, now: datetime) -> Today:
@@ -153,40 +160,88 @@ def answer(
     confidence: Confidence | None,
     seconds: int,
     now: datetime,
+    answer_text: str | None = None,
 ) -> Correction:
     """Grade an answer without AI (T5), save it, and set the next date of a review
-    question. `chosen_option` None is "Je ne sais pas", which needs no confidence."""
+    question. An MCQ is answered with `chosen_option`, a value or a short answer with
+    `answer_text`; nothing given is "Je ne sais pas", which needs no confidence."""
     question = get_question(connection, question_id)
     if question is None:
         raise ValueError(f"Question {question_id} does not exist.")
-    if question.format != "mcq":
-        raise ValueError(f"Question {question_id} is not an MCQ: graded from lot 3.")
-    if chosen_option is not None and confidence is None:
+    mcq = question.format == "mcq"
+    text = (answer_text or "").strip() or None
+    given = chosen_option if mcq else text
+    if given is not None and confidence is None:
         raise ValueError("Indique ta confiance avant de valider ta réponse.")
-    options = mcq_options(question.content)
-    correct = grade_mcq(options, chosen_option)
+    if given is None:
+        confidence = None  # "Je ne sais pas"
+    correction = _grade(question, chosen_option, text)
+    correction = replace(
+        correction, priority=not correction.correct and confidence == "sure"
+    )
     record_answer(
         connection,
         NewAnswer(
             question_id,
             session_id,
-            correct,
-            confidence if chosen_option is not None else None,
+            correction.correct,
+            confidence,
             seconds,
-            chosen_option=chosen_option,
+            chosen_option=chosen_option if mcq else None,
+            answer_text=None if mcq else text,
         ),
     )
     if question.role == "review":
         card = review(
-            get_card(connection, question_id), question_id, correct, confidence, now
+            get_card(connection, question_id),
+            question_id,
+            correction.correct,
+            confidence,
+            now,
         )
         save_card(connection, card)
-    return Correction(
-        correct,
-        next(number for number, option in enumerate(options, 1) if option.correct),
-        [option.explanation for option in options],
-        priority=not correct and confidence == "sure" and chosen_option is not None,
-    )
+    return correction
+
+
+def _grade(
+    question: Question, chosen_option: int | None, text: str | None
+) -> Correction:
+    """The correction of an answer by the code (T5), before its priority is known."""
+    content = question.content
+    if question.format == "mcq":
+        options = mcq_options(content)
+        return Correction(
+            grade_mcq(options, chosen_option),
+            priority=False,
+            correct_option=next(
+                number for number, option in enumerate(options, 1) if option.correct
+            ),
+            explanations=[option.explanation for option in options],
+        )
+    if question.format == "value":
+        right = text is not None and grade_value(
+            content["value"], content["tolerance"], text, content.get("accepted", [])
+        )
+        return Correction(
+            right,
+            priority=False,
+            expected=_french(content["value"]),
+            explanation=content.get("explanation"),
+        )
+    if question.format == "short":
+        right = text is not None and grade_short(content["accepted"], text)
+        return Correction(
+            right,
+            priority=False,
+            expected=content["accepted"][0],
+            explanation=content.get("explanation"),
+        )
+    raise ValueError(f"Question {question.id} is an open answer: Claude grades it.")
+
+
+def _french(number: float) -> str:
+    """A value as T2 wrote it, in French: "4", "0,25", "6,67"."""
+    return repr(float(number)).removesuffix(".0").replace(".", ",")
 
 
 def finish(
@@ -242,7 +297,7 @@ def start_notion(
     questions = [
         question
         for question in get_questions(connection, notion_id)
-        if question.format == "mcq" and not question.reported
+        if question.format in _ASKED_FORMATS and not question.reported
     ]
     if not questions:
         raise ValueError("Les questions de cette notion ne sont pas encore prêtes.")
@@ -273,15 +328,21 @@ def _to_ask(connection: sqlite3.Connection, question: Question) -> QuestionToAsk
     (resource_id,) = connection.execute(
         "SELECT resource_id FROM notion WHERE id = ?", (question.notion_id,)
     ).fetchone()
-    options = [
-        OptionToAsk(number, option.text)
-        for number, option in enumerate(mcq_options(question.content), start=1)
-    ]
+    options = (
+        [
+            OptionToAsk(number, option.text)
+            for number, option in enumerate(mcq_options(question.content), start=1)
+        ]
+        if question.format == "mcq"
+        else []
+    )
     return QuestionToAsk(
         question.id,
         question.role,
+        question.format,
         question.statement,
         _shuffle.sample(options, len(options)),
+        question.content.get("tolerance") if question.format == "value" else None,
         subject,
         resource_id,
         question.first_page,

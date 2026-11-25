@@ -9,7 +9,7 @@ import pytest
 from fake_ai import FakeEngine
 from fastapi.testclient import TestClient
 from test_preparation import make_chapters, notions, questions
-from test_sessions import make_due, make_subject
+from test_sessions import make_due, make_subject, question_of
 
 from bosh_mow.ai.gateway import Gateway
 from bosh_mow.ai.tasks import run_next_task
@@ -133,6 +133,32 @@ def test_the_daily_queue_through_the_api(
     assert client.get("/api/today").json()["successful_days"] == 1
 
 
+def test_a_value_is_answered_with_its_text_through_the_api(
+    client: TestClient, db: sqlite3.Connection
+) -> None:
+    notion_id, _ = make_subject(db)
+    value = question_of(db, notion_id, "value")
+    make_due(db, [value])
+    session = client.post("/api/sessions").json()["id"]
+
+    question = client.get(f"/api/sessions/{session}/next").json()
+    given = {
+        "question_id": value,
+        "chosen_option": None,
+        "answer_text": "4",
+        "confidence": "sure",
+        "seconds": 7,
+    }
+    correction = client.post(f"/api/sessions/{session}/answers", json=given).json()
+
+    assert (question["format"], question["options"], question["tolerance"]) == (
+        "value",
+        [],
+        0.01,
+    )
+    assert (correction["correct"], correction["expected"]) == (True, "4")
+
+
 def test_thoughts_and_wanderings_through_the_api(client: TestClient) -> None:
     session = client.post("/api/sessions").json()["id"]
     thought = client.post(
@@ -173,7 +199,10 @@ def test_studying_a_notion_through_the_api(
     assert proposed["id"] == notion_id
     assert started["warmup"] is None  # nothing succeeded yet (R15)
     assert len(started["pretests"]) == 2
-    assert [q["id"] for q in started["tests"]] == reviews
+    assert [q["id"] for q in started["tests"]] == [
+        *reviews,
+        question_of(db, notion_id, "value"),
+    ]
 
 
 def test_a_notion_and_its_pages_for_the_reading(

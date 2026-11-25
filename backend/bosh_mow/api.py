@@ -383,10 +383,14 @@ class QueueStarted:
 
 @dataclass(frozen=True)
 class AnswerGiven:
+    """An MCQ is answered with the number of its option, a value or a short answer with
+    its text; neither is "Je ne sais pas"."""
+
     question_id: int
-    chosen_option: int | None  # its number in the question; null: "Je ne sais pas"
+    chosen_option: int | None
     confidence: Confidence | None
     seconds: int
+    answer_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -447,6 +451,7 @@ def give_answer(session_id: int, given: AnswerGiven, db: Database) -> Correction
         given.confidence,
         given.seconds,
         datetime.now(UTC),
+        given.answer_text,
     )
 
 
