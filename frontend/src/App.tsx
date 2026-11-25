@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router'
 import { getSettings, messageOf, type Settings } from './api.ts'
 import { Layout } from './components/Layout.tsx'
@@ -39,6 +39,8 @@ export function App() {
   }
   const { settings } = start
   const setSettings = (changed: Settings) => setStart({ kind: 'ready', settings: changed })
+  // Without settings, the first launch is not done: every screen leads to Bienvenue.
+  const guarded = (screen: ReactNode) => (settings ? screen : <Navigate to="/bienvenue" replace />)
 
   return (
     <HashRouter>
@@ -46,10 +48,9 @@ export function App() {
         {/* Only reached without settings: Bienvenue itself leads on to the first subject. */}
         <Route path="/bienvenue" element={<WelcomeScreen onDone={setSettings} />} />
         {/* A session takes the whole window, without the sidebar (R16). */}
-        <Route
-          path="/session"
-          element={settings ? <SessionScreen /> : <Navigate to="/bienvenue" replace />}
-        />
+        <Route path="/session" element={guarded(<SessionScreen />)} />
+        <Route path="/notion" element={guarded(<NotionScreen />)} />
+        <Route path="/notion/:notionId" element={guarded(<NotionScreen />)} />
         <Route
           element={
             settings ? (
@@ -60,7 +61,6 @@ export function App() {
           }
         >
           <Route path="/accueil" element={<HomeScreen />} />
-          <Route path="/notion" element={<NotionScreen />} />
           <Route path="/matieres" element={<SubjectsScreen />} />
           <Route path="/matieres/nouvelle" element={<NewSubjectScreen />} />
           <Route path="/matieres/:subjectId" element={<SubjectScreen />} />

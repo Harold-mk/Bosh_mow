@@ -337,3 +337,19 @@ a:hover {
   flex: none;
   color: var(--color-text-secondary);
 }
+
+/* A detail folded under a line, opened on demand: why Claude failed, a correction. */
+.detail {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
+.detail summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.detail[open] summary {
+  margin-bottom: 4px;
+}

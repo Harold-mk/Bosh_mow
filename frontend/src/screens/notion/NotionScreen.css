@@ -1,0 +1,156 @@
+/* Notion: the steps of a new notion (docs/maquettes/Notion), in the frame of a session. */
+
+/* The steps in dots above the chrono: the current one stretches. */
+.step-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.step-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-border);
+  transition: width var(--transition);
+}
+
+.step-dots span.done,
+.step-dots span.current {
+  background: var(--color-text);
+}
+
+.step-dots span.current {
+  width: 22px;
+}
+
+/* The steps in a list under the chrono, with their time. */
+.step-list {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step-list li {
+  height: 26px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--color-disabled-text);
+}
+
+.step-list li.done {
+  color: var(--color-text-secondary);
+}
+
+.step-list li.current {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.step-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  justify-self: center;
+  background: var(--color-border);
+}
+
+.step-list li.done .step-dot,
+.step-list li.current .step-dot {
+  background: var(--color-text);
+}
+
+.step-list .mono {
+  font-size: 11.5px;
+  color: var(--color-text-secondary);
+}
+
+/* The guided reading: what to look for, then the pages of the notion. */
+.reading-goals,
+.next-box {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--color-background);
+}
+
+.reading-goals ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.next-box .label {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.course-page {
+  padding: 28px 32px 20px;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--color-line);
+  font: 400 14px/1.7 'Source Serif 4', Georgia, serif;
+}
+
+.course-text {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.course-description {
+  margin-top: 12px;
+  font: 400 13px/1.5 var(--font-text);
+  color: var(--color-text-secondary);
+}
+
+.course-description strong {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.course-number {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 0.8em;
+  color: var(--color-text-secondary);
+}
+
+/* The time of the reading is up: the answers are looked for from memory. */
+.reading-hidden {
+  padding: 28px 24px;
+  border-radius: 12px;
+  background: var(--color-background);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.reading-hidden-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.reading-hidden span:last-child {
+  max-width: 440px;
+  color: var(--color-text-secondary);
+}
+
+.pause-text {
+  color: var(--color-text-secondary);
+}
+
+.pause-tips {
+  margin: 0;
+  padding-left: 1.2em;
+  line-height: 1.6;
+}

@@ -12,6 +12,8 @@ export type Answered = { chosen: number | null; correction: Correction }
 type Props = {
   asked: Asked
   answered?: Answered // once validated
+  reveal?: boolean // false for a pretest: noted, its correction waits for the reading
+  note?: string // under the statement: the format and how it is corrected
   busy: boolean
   nextLabel: string
   onAnswer: (chosen: number | null, confidence: Confidence | null) => void
@@ -27,7 +29,16 @@ const LEVELS: { confidence: Confidence; name: string; dots: number }[] = [
 
 /** A question of the queue: its options and the confidence (R6), then its correction
  *  (T5). Keys: A to D for an option, 1 to 3 for the confidence, Entrée to go on. */
-export function QuestionCard({ asked, answered, busy, nextLabel, onAnswer, onNext }: Props) {
+export function QuestionCard({
+  asked,
+  answered,
+  reveal = true,
+  note = 'QCM · corrigé instantanément',
+  busy,
+  nextLabel,
+  onAnswer,
+  onNext,
+}: Props) {
   const [chosen, setChosen] = useState<number>()
   const [confidence, setConfidence] = useState<Confidence>()
   const { question } = asked
@@ -61,6 +72,7 @@ export function QuestionCard({ asked, answered, busy, nextLabel, onAnswer, onNex
       <div className="question-head">
         <span className="label">{asked.label}</span>
         {answered &&
+          reveal &&
           (answered.correction.correct ? (
             <span className="badge correct">
               <Icon name="check" size={14} />
@@ -74,9 +86,9 @@ export function QuestionCard({ asked, answered, busy, nextLabel, onAnswer, onNex
       </div>
       <div className="statement">
         <h1 lang="en">{question.statement}</h1>
-        <span className="label">QCM · corrigé instantanément</span>
+        <span className="label">{note}</span>
       </div>
-      {answered ? (
+      {answered && reveal && (
         <Corrected
           question={question}
           answered={answered}
@@ -84,7 +96,18 @@ export function QuestionCard({ asked, answered, busy, nextLabel, onAnswer, onNex
           nextLabel={nextLabel}
           onNext={onNext}
         />
-      ) : (
+      )}
+      {answered && !reveal && (
+        <>
+          <p>Réponse notée. Tu la vérifieras en lisant : la bonne réponse est dans le cours.</p>
+          <div className="actions">
+            <button type="button" className="button primary" disabled={busy} onClick={onNext}>
+              {nextLabel}
+            </button>
+          </div>
+        </>
+      )}
+      {!answered && (
         <>
           <div role="radiogroup" aria-label="Propositions" className="options">
             {question.options.map((option, index) => (

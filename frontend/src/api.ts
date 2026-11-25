@@ -175,6 +175,30 @@ export function getNextNotion(): Promise<NotionToStudy | null> {
   return request('GET', '/notions/next')
 }
 
+export function getNotion(notionId: number): Promise<NotionToStudy> {
+  return request('GET', `/notions/${notionId}`)
+}
+
+/** A page of a notion, as it is read: with what it shows if mostly in images (T11). */
+export type PageText = { number: number; text: string; description: string | null }
+
+export function getNotionPages(notionId: number): Promise<PageText[]> {
+  return request('GET', `/notions/${notionId}/pages`)
+}
+
+/** The study of a notion once started (R13), with its session. */
+export type NotionSession = {
+  session_id: number
+  notion: NotionToStudy
+  warmup: QuestionToAsk | null // a question already succeeded, first (R15)
+  pretests: QuestionToAsk[] // before the reading, not scheduled
+  tests: QuestionToAsk[] // after the reading: they enter the reviews
+}
+
+export function startNotion(notionId: number): Promise<NotionSession> {
+  return request('POST', `/notions/${notionId}/session`)
+}
+
 export function getSettings(): Promise<Settings | null> {
   return request('GET', '/settings')
 }

@@ -8,7 +8,16 @@ declare global {
   }
 }
 
+const LEAVE_MS = 300 // a session screen that follows in full screen cancels the leaving
+let leaving = 0
+
 export function setFullscreen(on: boolean): void {
+  window.clearTimeout(leaving)
+  if (on) apply(true)
+  else leaving = window.setTimeout(() => apply(false), LEAVE_MS)
+}
+
+function apply(on: boolean): void {
   // Only a comfort: if the window cannot change, the session goes on as it is.
   const app = window.pywebview?.api
   if (app) {

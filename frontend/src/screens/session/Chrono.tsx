@@ -1,14 +1,18 @@
-import { SESSION_SECONDS } from '../../study.ts'
-
-const DOTS = 60 // the ring: one dot per quarter of a minute of the 15 (docs/regles-design.md)
+const DOTS = 60 // the ring (docs/regles-design.md)
 const RING = Array.from({ length: DOTS }, (_, k) => {
   const angle = (k / DOTS) * 2 * Math.PI - Math.PI / 2 // from the top, clockwise
   return { left: 87.5 + 80 * Math.cos(angle), top: 87.5 + 80 * Math.sin(angle) }
 })
 
+type Props = {
+  left: number // seconds
+  total: number // seconds: the full ring
+  label: string // under the time: "restantes", "temps écoulé"
+}
+
 /** The time left, in a ring of 60 dots that empties: a small deadline to keep. */
-export function Chrono({ left }: { left: number }) {
-  const on = Math.ceil((left / SESSION_SECONDS) * DOTS)
+export function Chrono({ left, total, label }: Props) {
+  const on = Math.ceil((left / total) * DOTS)
   const minutes = Math.floor(left / 60)
   const seconds = left % 60
   return (
@@ -20,7 +24,7 @@ export function Chrono({ left }: { left: number }) {
         <span className="clock">
           {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
         </span>
-        <span className="label">{left > 0 ? 'restantes sur 15 min' : 'temps écoulé'}</span>
+        <span className="label">{label}</span>
       </div>
     </div>
   )

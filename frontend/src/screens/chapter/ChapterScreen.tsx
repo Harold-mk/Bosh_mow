@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 import {
   askQuestions,
   type ChapterView,
@@ -70,9 +70,26 @@ export function ChapterScreen() {
     )
   }
   if (!subject || !chapter) return null
+  // The next notion to study, once Claude has written its questions.
+  const next = chapter.notions.find(
+    (notion) => !notion.studied && notion.questions.some((question) => !question.reported),
+  )
+  const started = chapter.notions.some((notion) => notion.studied)
   return (
     <>
-      <PageHeader parents={parents} title={chapter.title} crumb={`Chapitre ${number}`} />
+      <PageHeader
+        parents={parents}
+        title={chapter.title}
+        crumb={`Chapitre ${number}`}
+        action={
+          next && (
+            <Link to={`/notion/${next.id}`} className="button primary">
+              {started ? 'Continuer' : 'Commencer'} : {chapter.number}.{next.number}{' '}
+              {next.title}
+            </Link>
+          )
+        }
+      />
       {chapter.notions.length > 0 ? (
         <ChapterNotions
           subjectId={subjectId}

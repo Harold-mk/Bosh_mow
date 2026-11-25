@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
   type Confidence,
@@ -11,20 +11,20 @@ import {
   messageOf,
   type NotionToStudy,
   nextQuestion,
-  noteThought,
-  noteWandering,
   type QuestionToAsk,
   startQueue,
   type Thought,
   type Today,
 } from '../../api.ts'
-import { Logo, Wordmark } from '../../components/Brand.tsx'
 import { Icon } from '../../components/Icon.tsx'
 import { Notice } from '../../components/Notice.tsx'
 import { count } from '../../format.ts'
 import { setFullscreen } from '../../fullscreen.ts'
-import { queueMinutes, SESSION_SECONDS, typing } from '../../study.ts'
+import { queueMinutes, SESSION_SECONDS } from '../../study.ts'
+import { AwayCheck } from './AwayCheck.tsx'
 import { Chrono, Progress } from './Chrono.tsx'
+import { FocusHeader } from './FocusHeader.tsx'
+import { FocusTools } from './FocusTools.tsx'
 import { type Answered, type Asked, QuestionCard } from './QuestionCard.tsx'
 import './SessionScreen.css'
 import { ThoughtSorting } from './ThoughtSorting.tsx'
@@ -53,9 +53,6 @@ export function SessionScreen() {
   const [session, setSession] = useState<Started>()
   const [answered, setAnswered] = useState<number[]>([]) // each question answered, once
   const [now, setNow] = useState(() => Date.now())
-  const [parking, setParking] = useState(false)
-  const [parked, setParked] = useState(0)
-  const [wandered, setWandered] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const working = useRef(false) // a call is on its way: another one is not sent
@@ -81,25 +78,6 @@ export function SessionScreen() {
   const elapsed = session ? Math.floor((now - session.startedAt) / 1000) : 0
   const left = Math.min(SESSION_SECONDS, Math.max(0, SESSION_SECONDS - elapsed))
   const timeUp = left === 0
-
-  // The key P puts a thought aside, from the question itself (R17).
-  const onKey = useEffectEvent((event: KeyboardEvent) => {
-    if (asking && !typing(event) && event.key.toLowerCase() === 'p') {
-      event.preventDefault() // the P does not go into the field it opens
-      setParking(true)
-    }
-  })
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => onKey(event)
-    document.addEventListener('keydown', listener)
-    return () => document.removeEventListener('keydown', listener)
-  }, [])
-
-  useEffect(() => {
-    if (!wandered) return
-    const timer = setTimeout(() => setWandered(false), 3000)
-    return () => clearTimeout(timer)
-  }, [wandered])
 
   async function run(action: () => Promise<void>) {
     if (working.current) return
@@ -164,7 +142,6 @@ export function SessionScreen() {
 
   /** End the session, once its thoughts are planned or dropped (R17). */
   async function end(started: Started, ending: Ending) {
-    setParking(false)
     const thoughts = await getThoughts(started.id)
     if (thoughts.length > 0) setPhase({ kind: 'sorting', thoughts, ending })
     else await close(started, ending)
@@ -172,7 +149,6 @@ export function SessionScreen() {
 
   async function close(started: Started, ending: Ending) {
     const { minimum_done } = await endSession(started.id, ending !== 'later')
-    setFullscreen(false)
     if (ending === 'later') {
       navigate('/accueil')
       return
@@ -195,23 +171,6 @@ export function SessionScreen() {
     else navigate('/accueil')
   }
 
-  const park = (text: string) =>
-    run(async () => {
-      if (!session) return
-      await noteThought(session.id, text)
-      setParked((n) => n + 1)
-      setParking(false)
-    })
-
-  const wander = () =>
-    run(async () => {
-      if (!session) return
-      const shown =
-        phase.kind === 'question' || phase.kind === 'corrected' ? phase.asked.question.id : null
-      await noteWandering(session.id, shown)
-      setWandered(true)
-    })
-
   const minimum = day?.after_absence ?? false // after an absence, the minimum alone (R27)
   const due = day?.due ?? 0
   const total = session ? Math.max(session.planned, answered.length) : due
@@ -229,16 +188,17 @@ export function SessionScreen() {
 
   return (
     <div className="focus">
-      <header className="focus-header">
-        <Logo size={28} />
-        <Wordmark height={13} />
-        <span className="label">{title}</span>
-        {phase.kind !== 'sorting' && phase.kind !== 'ended' && (
-          <button type="button" className="button ghost" disabled={busy} onClick={later}>
-            {session ? 'Terminer plus tard' : "Retour à l'accueil"}
-          </button>
-        )}
-      </header>
+      <FocusHeader
+        label={title}
+        action={
+          phase.kind !== 'sorting' &&
+          phase.kind !== 'ended' && (
+            <button type="button" className="button ghost" disabled={busy} onClick={later}>
+              {session ? 'Terminer plus tard' : "Retour à l'accueil"}
+            </button>
+          )
+        }
+      />
       <main className="focus-main">
         <section className="card session-card" aria-label="Séance">
           {error && <Notice>{error}</Notice>}
@@ -254,7 +214,19 @@ export function SessionScreen() {
           {phase.kind === 'ready' &&
             day &&
             (due > 0 ? (
-              <Ready due={due} busy={busy} onStart={start} />
+              <>
+                <div className="statement">
+                  <span className="label">Avant de commencer</span>
+                  <h1>
+                    {count(due, 'question')} à réviser, environ {queueMinutes(due)} minutes
+                  </h1>
+                </div>
+                <p>
+                  Réponds de mémoire, puis dis à quel point tu es sûr de toi. Une pensée te
+                  distrait ? Appuie sur P : elle attendra la fin de la séance.
+                </p>
+                <AwayCheck busy={busy} onStart={start} />
+              </>
             ) : (
               <NothingDue notion={notion} />
             ))}
@@ -285,79 +257,22 @@ export function SessionScreen() {
         {day && (session || due > 0) && (
           <aside className="card session-side" aria-label="Chrono et progression">
             <span className="label">{minimum ? 'Séance minimum' : 'File du jour'}</span>
-            <Chrono left={left} />
+            <Chrono
+              left={left}
+              total={SESSION_SECONDS}
+              label={left > 0 ? 'restantes sur 15 min' : 'temps écoulé'}
+            />
             <Progress done={answered.length} total={total} />
-            {asking && (
-              <>
-                {/* Each one gives the focus back: Entrée goes on with the question. */}
-                <div className="side-actions">
-                  <button
-                    type="button"
-                    className="button ghost"
-                    onClick={(event) => {
-                      event.currentTarget.blur()
-                      wander()
-                    }}
-                  >
-                    <Icon name="flag" size={16} />
-                    J'ai décroché
-                  </button>
-                  <button
-                    type="button"
-                    className="button ghost"
-                    onClick={(event) => {
-                      event.currentTarget.blur()
-                      setParking(true)
-                    }}
-                  >
-                    <Icon name="note" size={16} />
-                    Parking à pensées
-                    {parked > 0 && <span className="mono">{parked}</span>}
-                  </button>
-                </div>
-                {wandered && (
-                  <p className="hint" role="status">
-                    Décrochage noté : la question t'attend.
-                  </p>
-                )}
-                {parking && <Parking onPark={park} onClose={() => setParking(false)} />}
-              </>
+            {session && asking && (
+              <FocusTools
+                sessionId={session.id}
+                questionId={phase.kind === 'question' || phase.kind === 'corrected' ? phase.asked.question.id : null}
+              />
             )}
           </aside>
         )}
       </main>
     </div>
-  )
-}
-
-/** R16: the phone away first; Commencer appears once the box is ticked. */
-function Ready({ due, busy, onStart }: { due: number; busy: boolean; onStart: () => void }) {
-  const [away, setAway] = useState(false)
-  return (
-    <>
-      <div className="statement">
-        <span className="label">Avant de commencer</span>
-        <h1>
-          {count(due, 'question')} à réviser, environ {queueMinutes(due)} minutes
-        </h1>
-      </div>
-      <p>
-        Réponds de mémoire, puis dis à quel point tu es sûr de toi. Une pensée te distrait ?
-        Appuie sur P : elle attendra la fin de la séance.
-      </p>
-      <label className="check">
-        <input type="checkbox" checked={away} onChange={(event) => setAway(event.target.checked)} />
-        Téléphone en Ne pas déranger, hors de portée
-      </label>
-      {away && (
-        <div className="actions">
-          <button type="button" className="button primary" disabled={busy} onClick={onStart}>
-            Commencer
-          </button>
-          <span className="hint">La séance passe en plein écran.</span>
-        </div>
-      )}
-    </>
   )
 }
 
@@ -422,8 +337,13 @@ function Ended({ ending, rest, minimumDone, minimum, notion }: EndedProps) {
       Arrêter
     </Link>
   )
+  // The session goes on in full screen: the notion does not ask for the box again.
   const go = (primary: boolean) => (
-    <Link to="/notion" className={`button ${primary ? 'primary' : 'ghost'}`}>
+    <Link
+      to="/notion"
+      state={{ focused: true }}
+      className={`button ${primary ? 'primary' : 'ghost'}`}
+    >
       Continuer avec une notion
     </Link>
   )
@@ -437,33 +357,5 @@ function Ended({ ending, rest, minimumDone, minimum, notion }: EndedProps) {
         {notion && (minimum ? go(false) : stop(false))}
       </div>
     </div>
-  )
-}
-
-/** R17: one line, then back to the question. */
-function Parking({ onPark, onClose }: { onPark: (text: string) => void; onClose: () => void }) {
-  const [text, setText] = useState('')
-  return (
-    <form
-      className="parking"
-      onSubmit={(event) => {
-        event.preventDefault()
-        if (text.trim()) onPark(text.trim())
-      }}
-    >
-      <input
-        className="field"
-        autoFocus
-        value={text}
-        maxLength={200}
-        placeholder="Une pensée, en une ligne"
-        aria-label="Pensée à mettre de côté"
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') onClose()
-        }}
-      />
-      <span className="hint">Entrée : elle attend la fin de la séance. Échap : retour à la question.</span>
-    </form>
   )
 }

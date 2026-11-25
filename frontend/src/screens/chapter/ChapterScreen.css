@@ -70,22 +70,6 @@
   color: var(--color-text);
 }
 
-/* Why Claude failed, folded: its controls are written for Claude, in English. */
-.detail {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--color-text-secondary);
-}
-
-.detail summary {
-  width: fit-content;
-  cursor: pointer;
-}
-
-.detail[open] summary {
-  margin-bottom: 4px;
-}
-
 /* Claude's doubt about where the chapter starts or ends: to read, not an error. */
 .boundary {
   padding: 10px 12px;
