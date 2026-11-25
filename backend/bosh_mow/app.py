@@ -1,6 +1,7 @@
 """Start the app: the AI worker and the local API server in threads, then the window."""
 
 import argparse
+import mimetypes
 import socket
 import threading
 import time
@@ -28,6 +29,13 @@ HOST = "127.0.0.1"
 DEV_API_PORT = 8765
 DEV_FRONTEND_URL = "http://localhost:5173"
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+def serve_frontend(api: FastAPI, folder: Path) -> None:
+    """Serve the built interface. Its .mjs files, such as the worker of PDF.js, go as
+    JavaScript: Windows may know them as text, and a browser then refuses them."""
+    mimetypes.add_type("text/javascript", ".mjs")
+    api.mount("/", StaticFiles(directory=folder, html=True))
 
 
 class WindowApi:
@@ -63,7 +71,7 @@ def main() -> None:
             raise SystemExit(
                 "frontend/dist is missing: run `npm run build` in frontend/ first."
             )
-        api.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True))
+        serve_frontend(api, FRONTEND_DIST)
         port = free_port()
         url = f"http://{HOST}:{port}/"
 
