@@ -27,6 +27,7 @@ import { FocusTools } from '../session/FocusTools.tsx'
 import { type Answered, type Asked, QuestionCard } from '../session/QuestionCard.tsx'
 import '../session/SessionScreen.css'
 import { ThoughtSorting } from '../session/ThoughtSorting.tsx'
+import { ReaderOverlay } from '../reader/ReaderOverlay.tsx'
 import './NotionScreen.css'
 
 /** The steps of a new notion (R13), with their time; exercises come with lot 4. */
@@ -81,6 +82,8 @@ export function NotionScreen() {
   const [now, setNow] = useState(() => Date.now())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  // Pages open in the reader, over the notion: from a correction, or from the reading.
+  const [course, setCourse] = useState<{ resourceId: number; page: number; back: string }>()
   const working = useRef(false) // a call is on its way: another one is not sent
   const loaded = useRef(false) // read once, even when React runs the effects twice
 
@@ -311,6 +314,13 @@ export function NotionScreen() {
                 nextLabel={nextLabel(study, phase.step, phase.index)}
                 onAnswer={answer}
                 onNext={goOn}
+                onShowCourse={() =>
+                  setCourse({
+                    resourceId: phase.asked.question.resource_id,
+                    page: phase.asked.question.first_page,
+                    back: 'Revenir à la question',
+                  })
+                }
               />
               {phase.step === 'pretest' && timeUp && !phase.answered && (
                 <div className="actions">
@@ -333,6 +343,13 @@ export function NotionScreen() {
               hidden={timeUp}
               busy={busy}
               onDone={() => run(() => after(study, 'reading'))}
+              onOpen={() =>
+                setCourse({
+                  resourceId: study.notion.resource_id,
+                  page: study.notion.first_page,
+                  back: 'Revenir à la lecture',
+                })
+              }
             />
           )}
           {phase.kind === 'sorting' && (
@@ -380,6 +397,14 @@ export function NotionScreen() {
           </aside>
         )}
       </main>
+      {course && (
+        <ReaderOverlay
+          resourceId={course.resourceId}
+          page={course.page}
+          backLabel={course.back}
+          onClose={() => setCourse(undefined)}
+        />
+      )}
     </div>
   )
 }
@@ -420,11 +445,13 @@ type ReadingProps = {
   hidden: boolean // the time is up: the answers are looked for from memory
   busy: boolean
   onDone: () => void
+  onOpen: () => void // the pages in the reader, as they are
 }
 
 /** The guided reading: what to look for, then the pages of the notion, at most 10
- *  minutes. The pages are shown as their text; the reader shows them as they are. */
-function Reading({ pretested, pages, hidden, busy, onDone }: ReadingProps) {
+ *  minutes. The pages are shown as their text; the reader shows them as they are,
+ *  until the time is up: then the answers are looked for from memory. */
+function Reading({ pretested, pages, hidden, busy, onDone, onOpen }: ReadingProps) {
   return (
     <>
       <span className="label">Lecture guidée · 10 minutes au plus</span>
@@ -469,6 +496,11 @@ function Reading({ pretested, pages, hidden, busy, onDone }: ReadingProps) {
         <button type="button" className="button primary" disabled={busy} onClick={onDone}>
           J'ai lu, passer au test
         </button>
+        {!hidden && (
+          <button type="button" className="button ghost" onClick={onOpen}>
+            Ouvrir dans le lecteur
+          </button>
+        )}
       </div>
     </>
   )

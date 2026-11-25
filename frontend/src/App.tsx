@@ -7,6 +7,7 @@ import { ChapterScreen } from './screens/chapter/ChapterScreen.tsx'
 import { HomeScreen } from './screens/home/HomeScreen.tsx'
 import { NewSubjectScreen } from './screens/new-subject/NewSubjectScreen.tsx'
 import { NotionScreen } from './screens/notion/NotionScreen.tsx'
+import { ReaderScreen } from './screens/reader/ReaderScreen.tsx'
 import { SessionScreen } from './screens/session/SessionScreen.tsx'
 import { SubjectScreen } from './screens/subject/SubjectScreen.tsx'
 import { SubjectsScreen } from './screens/subjects/SubjectsScreen.tsx'
@@ -65,6 +66,7 @@ export function App() {
           <Route path="/matieres/nouvelle" element={<NewSubjectScreen />} />
           <Route path="/matieres/:subjectId" element={<SubjectScreen />} />
           <Route path="/matieres/:subjectId/chapitres/:number" element={<ChapterScreen />} />
+          <Route path="/lecteur/:resourceId" element={<ReaderScreen />} />
         </Route>
         <Route path="*" element={<Navigate to="/accueil" replace />} />
       </Routes>

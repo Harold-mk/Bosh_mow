@@ -260,6 +260,31 @@ export function getDescriptions(subjectId: number): Promise<DescriptionCount[]> 
   return request('GET', `/subjects/${subjectId}/descriptions`)
 }
 
+/** An imported file with its subject, for the reader. */
+export type ResourceView = {
+  id: number
+  subject_id: number
+  file_name: string
+  kind: 'pdf' | 'markdown'
+  page_count: number // pages of a PDF, sections of a Markdown file
+}
+
+/** A title of the outline of a file; `page` is a PDF page or a Markdown section. */
+export type Heading = { level: number; title: string; page: number }
+
+export function getResource(resourceId: number): Promise<ResourceView> {
+  return request('GET', `/resources/${resourceId}`)
+}
+
+export function getOutline(resourceId: number): Promise<Heading[]> {
+  return request('GET', `/resources/${resourceId}/outline`)
+}
+
+/** Every page of a file as text: the reader shows a Markdown file so. */
+export function getResourcePages(resourceId: number): Promise<PageText[]> {
+  return request('GET', `/resources/${resourceId}/pages`)
+}
+
 /** Where a background task of Claude stands, and why it waits or failed. */
 export type TaskState = {
   status: 'pending' | 'running' | 'done' | 'failed'

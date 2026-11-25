@@ -21,6 +21,7 @@ import { Notice } from '../../components/Notice.tsx'
 import { count } from '../../format.ts'
 import { setFullscreen } from '../../fullscreen.ts'
 import { queueMinutes, SESSION_SECONDS } from '../../study.ts'
+import { ReaderOverlay } from '../reader/ReaderOverlay.tsx'
 import { AwayCheck } from './AwayCheck.tsx'
 import { Chrono, Progress } from './Chrono.tsx'
 import { FocusHeader } from './FocusHeader.tsx'
@@ -55,6 +56,7 @@ export function SessionScreen() {
   const [now, setNow] = useState(() => Date.now())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [course, setCourse] = useState<QuestionToAsk>() // its pages open in the reader
   const working = useRef(false) // a call is on its way: another one is not sent
 
   useEffect(() => {
@@ -239,6 +241,7 @@ export function SessionScreen() {
               nextLabel={nextLabel}
               onAnswer={answer}
               onNext={goOn}
+              onShowCourse={() => setCourse(phase.asked.question)}
             />
           )}
           {phase.kind === 'sorting' && (
@@ -272,6 +275,14 @@ export function SessionScreen() {
           </aside>
         )}
       </main>
+      {course && (
+        <ReaderOverlay
+          resourceId={course.resource_id}
+          page={course.first_page}
+          backLabel="Revenir à la question"
+          onClose={() => setCourse(undefined)}
+        />
+      )}
     </div>
   )
 }

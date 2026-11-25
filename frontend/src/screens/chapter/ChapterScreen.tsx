@@ -75,6 +75,7 @@ export function ChapterScreen() {
     (notion) => !notion.studied && notion.questions.some((question) => !question.reported),
   )
   const started = chapter.notions.some((notion) => notion.studied)
+  const source = subject.chapters[number - 1]?.sources[0] // where the chapter starts
   return (
     <>
       <PageHeader
@@ -82,12 +83,22 @@ export function ChapterScreen() {
         title={chapter.title}
         crumb={`Chapitre ${number}`}
         action={
-          next && (
-            <Link to={`/notion/${next.id}`} className="button primary">
-              {started ? 'Continuer' : 'Commencer'} : {chapter.number}.{next.number}{' '}
-              {next.title}
-            </Link>
-          )
+          <div className="actions">
+            {source && (
+              <Link
+                to={`/lecteur/${source.resource_id}?page=${source.first_page}`}
+                className="button secondary"
+              >
+                Lire le chapitre
+              </Link>
+            )}
+            {next && (
+              <Link to={`/notion/${next.id}`} className="button primary">
+                {started ? 'Continuer' : 'Commencer'} : {chapter.number}.{next.number}{' '}
+                {next.title}
+              </Link>
+            )}
+          </div>
         }
       />
       {chapter.notions.length > 0 ? (

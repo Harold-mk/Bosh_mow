@@ -115,7 +115,8 @@ export function SubjectScreen() {
             <h2>Documents</h2>
             <ul className="subject-files">
               {subject.resources.map((resource) => (
-                <li key={resource.id}>
+                <li key={resource.id} className="subject-link">
+                  <Link to={`/lecteur/${resource.id}`} className="subject-file">
                   <Icon name="file" />
                   <span className="subject-item">
                     <span className="subject-item-title">{resource.file_name}</span>
@@ -128,6 +129,7 @@ export function SubjectScreen() {
                         </span>
                       ))}
                   </span>
+                  </Link>
                 </li>
               ))}
             </ul>

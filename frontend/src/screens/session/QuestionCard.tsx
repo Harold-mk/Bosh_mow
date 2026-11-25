@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 import type { Confidence, Correction, QuestionToAsk } from '../../api.ts'
 import { Icon } from '../../components/Icon.tsx'
-import { typing } from '../../study.ts'
+import { notForShortcuts } from '../../study.ts'
 
 /** A question on screen, with the label of its place in the queue. */
 export type Asked = { question: QuestionToAsk; label: string; shownAt: number }
@@ -18,6 +18,7 @@ type Props = {
   nextLabel: string
   onAnswer: (chosen: number | null, confidence: Confidence | null) => void
   onNext: () => void
+  onShowCourse?: () => void // Voir le cours: its pages in the reader (R4)
 }
 
 const LETTERS = ['A', 'B', 'C', 'D']
@@ -38,6 +39,7 @@ export function QuestionCard({
   nextLabel,
   onAnswer,
   onNext,
+  onShowCourse,
 }: Props) {
   const [chosen, setChosen] = useState<number>()
   const [confidence, setConfidence] = useState<Confidence>()
@@ -45,7 +47,7 @@ export function QuestionCard({
   const ready = chosen !== undefined && confidence !== undefined
 
   const onKey = useEffectEvent((event: KeyboardEvent) => {
-    if (typing(event) || busy) return
+    if (notForShortcuts(event) || busy) return
     if (event.key === 'Enter') {
       // A button pressed with Entrée does its own action; an option or a level does not.
       const target = event.target
@@ -95,6 +97,7 @@ export function QuestionCard({
           busy={busy}
           nextLabel={nextLabel}
           onNext={onNext}
+          onShowCourse={onShowCourse}
         />
       )}
       {answered && !reveal && (
@@ -183,11 +186,19 @@ type CorrectedProps = {
   busy: boolean
   nextLabel: string
   onNext: () => void
+  onShowCourse?: () => void
 }
 
 /** The options after the answer: the right one and a wrong choice, with their
  *  explanation; then the mistake made while sure (R10), and the way on. */
-function Corrected({ question, answered, busy, nextLabel, onNext }: CorrectedProps) {
+function Corrected({
+  question,
+  answered,
+  busy,
+  nextLabel,
+  onNext,
+  onShowCourse,
+}: CorrectedProps) {
   const { chosen, correction } = answered
   return (
     <>
@@ -226,6 +237,11 @@ function Corrected({ question, answered, busy, nextLabel, onNext }: CorrectedPro
         <button type="button" className="button primary" disabled={busy} onClick={onNext}>
           {nextLabel}
         </button>
+        {onShowCourse && (
+          <button type="button" className="button ghost" onClick={onShowCourse}>
+            Voir le cours
+          </button>
+        )}
       </div>
     </>
   )

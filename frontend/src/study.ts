@@ -8,10 +8,12 @@ export function queueMinutes(questions: number): number {
   return Math.min(SESSION_SECONDS / 60, Math.ceil((questions * SECONDS_PER_QUESTION) / 60))
 }
 
-/** Whether a key goes to a field, or comes with Ctrl or Alt: shortcuts leave it alone. */
-export function typing(event: KeyboardEvent): boolean {
+/** Whether the shortcuts of a session leave a key alone: it goes to a field or to a
+ *  window over the session, such as the reader, or comes with Ctrl or Alt. */
+export function notForShortcuts(event: KeyboardEvent): boolean {
   const target = event.target
-  const inField =
-    target instanceof HTMLElement && target.closest('input, textarea, select') !== null
-  return inField || event.ctrlKey || event.altKey || event.metaKey
+  const elsewhere =
+    target instanceof HTMLElement &&
+    target.closest('input, textarea, select, [role="dialog"]') !== null
+  return elsewhere || event.ctrlKey || event.altKey || event.metaKey
 }

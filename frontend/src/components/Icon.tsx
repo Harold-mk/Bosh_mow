@@ -29,6 +29,18 @@ const PATHS = {
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M6 12h12" />,
+  outline: (
+    <>
+      <path d="M9 6h11M9 12h11M9 18h11" />
+      <circle cx="4.5" cy="6" r="1" />
+      <circle cx="4.5" cy="12" r="1" />
+      <circle cx="4.5" cy="18" r="1" />
+    </>
+  ),
+  down: <path d="M6 9l6 6 6-6" />,
+  previous: <path d="M15 6l-6 6 6 6" />,
+  next: <path d="M9 6l6 6-6 6" />,
   file: (
     <>
       <path d="M7 3h7l5 5v13H7z" />

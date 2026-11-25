@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 import { messageOf, noteThought, noteWandering } from '../../api.ts'
 import { Icon } from '../../components/Icon.tsx'
-import { typing } from '../../study.ts'
+import { notForShortcuts } from '../../study.ts'
 
 type Props = {
   sessionId: number
@@ -17,7 +17,7 @@ export function FocusTools({ sessionId, questionId }: Props) {
   const [error, setError] = useState<string>()
 
   const onKey = useEffectEvent((event: KeyboardEvent) => {
-    if (!typing(event) && event.key.toLowerCase() === 'p') {
+    if (!notForShortcuts(event) && event.key.toLowerCase() === 'p') {
       event.preventDefault() // the P does not go into the field it opens
       setParking(true)
     }
