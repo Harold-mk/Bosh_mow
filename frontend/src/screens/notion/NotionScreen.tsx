@@ -252,7 +252,10 @@ export function NotionScreen() {
         }
       />
       <main className="focus-main">
-        <section className="card session-card" aria-label={STEPS[step].name}>
+        <section
+          className={`card session-card${phase.kind === 'reading' ? ' reading' : ''}`}
+          aria-label={STEPS[step].name}
+        >
           {error && <Notice>{error}</Notice>}
           {(phase.kind === 'question' || phase.kind === 'reading') && timeUp && step !== 'pause' && (
             <p className="time-up" role="status">
@@ -438,6 +441,8 @@ function Reading({ pretested, pages, hidden, busy, onDone }: ReadingProps) {
           </ul>
         </div>
       )}
+      {/* Only the pages scroll: what to look for and the way on stay in view. */}
+      <div className="reading-pages">
       {hidden ? (
         <div className="reading-hidden">
           <span className="reading-hidden-title">Le texte est masqué</span>
@@ -459,6 +464,7 @@ function Reading({ pretested, pages, hidden, busy, onDone }: ReadingProps) {
           </article>
         ))
       )}
+      </div>
       <div className="actions">
         <button type="button" className="button primary" disabled={busy} onClick={onDone}>
           J'ai lu, passer au test

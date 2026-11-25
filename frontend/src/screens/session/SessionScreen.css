@@ -59,6 +59,26 @@
   gap: 16px;
 }
 
+/* Side by side, the screen itself does not scroll: the header and the chrono stay in
+   view, and what is too long scrolls inside its own card. Narrower, the chrono goes
+   under the question and the page scrolls. */
+@media (min-width: 920px) {
+  .focus {
+    height: 100vh;
+  }
+
+  .focus-main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .session-card,
+  .session-side {
+    max-height: 100%;
+    overflow-y: auto;
+  }
+}
+
 /* Time up: the only dark block, as a banner above the question. */
 .time-up {
   display: flex;

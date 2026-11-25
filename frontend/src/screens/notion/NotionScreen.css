@@ -123,6 +123,26 @@
   color: var(--color-text-secondary);
 }
 
+/* The pages of the reading, one under the other. Side by side with the chrono, they
+   alone scroll, between what to look for and the way on. */
+.reading-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (min-width: 920px) {
+  .session-card.reading {
+    overflow: hidden;
+  }
+
+  .reading-pages {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
 /* The time of the reading is up: the answers are looked for from memory. */
 .reading-hidden {
   padding: 28px 24px;
