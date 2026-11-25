@@ -99,6 +99,21 @@ class CombinedT2Answer(BaseModel):
     boundary_alert: str | None
 
 
+class T6Criterion(BaseModel):
+    """Whether an answer meets one criterion of its question, and why."""
+
+    met: bool
+    comment: str  # in French, one sentence for the student
+
+
+class T6Answer(BaseModel):
+    """T6: an open answer graded against the criteria of its question. The app
+    concludes from the criteria met; Claude never gives the verdict itself."""
+
+    criteria: list[T6Criterion]  # one per criterion, in their order
+    comment: str  # in French: what is solid, then what to add or correct first
+
+
 class T11Answer(BaseModel):
     """T11: the description of a page whose content is mostly in images."""
 
