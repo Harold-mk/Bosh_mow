@@ -70,6 +70,7 @@ class Correction:
     explanations: list[str] = field(default_factory=list)  # an MCQ: of each option
     expected: str | None = None  # a value or a short answer: what was expected
     explanation: str | None = None  # a value or a short answer: how to find it
+    answer_id: int | None = None  # the answer saved, which a claim refers to
 
 
 @dataclass(frozen=True)
@@ -176,7 +177,7 @@ def answer(
     correction = replace(
         correction, priority=not correction.correct and confidence == "sure"
     )
-    record_answer(
+    answer_id = record_answer(
         connection,
         NewAnswer(
             question_id,
@@ -197,7 +198,7 @@ def answer(
             now,
         )
         save_card(connection, card)
-    return correction
+    return replace(correction, answer_id=answer_id)
 
 
 def _grade(

@@ -29,7 +29,14 @@ import {
   QuestionCard,
   validated,
 } from '../session/QuestionCard.tsx'
-import { leaving, type Result, Review, resultOf, withGrading } from '../session/Review.tsx'
+import {
+  leaving,
+  type Result,
+  Review,
+  resultOf,
+  withClaim,
+  withGrading,
+} from '../session/Review.tsx'
 import '../session/SessionScreen.css'
 import { ThoughtSorting } from '../session/ThoughtSorting.tsx'
 import { ReaderOverlay } from '../reader/ReaderOverlay.tsx'
@@ -319,6 +326,9 @@ export function NotionScreen() {
                 nextLabel={nextLabel(study, phase.step, phase.index)}
                 onAnswer={answer}
                 onGraded={(grading) => setResults((done) => withGrading(done, grading))}
+                onClaimed={(answerId, claimId) =>
+                  setResults((done) => withClaim(done, answerId, claimId))
+                }
                 onNext={goOn}
                 onShowCourse={() =>
                   setCourse({

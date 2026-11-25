@@ -30,6 +30,7 @@ from bosh_mow.content.repository import get_notions, get_questions, report_quest
 from bosh_mow.db.connection import connect
 from bosh_mow.paths import DataFolder
 from bosh_mow.settings import Settings, get_settings, save_settings
+from bosh_mow.study.claims import ClaimState, claim_state, make_claim
 from bosh_mow.study.gradings import (
     Grader,
     GradingState,
@@ -421,6 +422,11 @@ class ConfidenceGiven:
 
 
 @dataclass(frozen=True)
+class ClaimStarted:
+    id: int
+
+
+@dataclass(frozen=True)
 class SessionEnd:
     completed: bool  # the queue emptied or its time up; the notion studied to the end
 
@@ -518,6 +524,21 @@ def _grading(db: sqlite3.Connection, grading_id: int) -> GradingState:
     state = grading_state(db, grading_id)
     if state is None:
         raise HTTPException(404, "Cette correction n'existe pas.")
+    return state
+
+
+@router.post("/answers/{answer_id}/claim", status_code=202)
+def claim(answer_id: int, db: Database) -> ClaimStarted:
+    """Je pense avoir juste (T5): Claude judges the answer again, in the background."""
+    return ClaimStarted(make_claim(db, answer_id))
+
+
+@router.get("/claims/{claim_id}")
+def claim_of(claim_id: int, db: Database) -> ClaimState:
+    """Where a claim stands: the interface asks until Claude has decided."""
+    state = claim_state(db, claim_id)
+    if state is None:
+        raise HTTPException(404, "Cette demande n'existe pas.")
     return state
 
 

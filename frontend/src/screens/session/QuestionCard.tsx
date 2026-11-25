@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 import {
+  claimAnswer,
   type Confidence,
   type Correction,
   type GradingState,
@@ -62,6 +63,7 @@ type Props = {
   nextLabel: string
   onAnswer: (given: Given) => void
   onGraded?: (grading: GradingState) => void // an open answer graded after its validation
+  onClaimed?: (answerId: number, claimId: number) => void // Je pense avoir juste (T5)
   onNext: () => void
   onShowCourse?: () => void // Voir le cours: its pages in the reader (R4)
 }
@@ -102,6 +104,7 @@ export function QuestionCard({
   nextLabel,
   onAnswer,
   onGraded,
+  onClaimed,
   onNext,
   onShowCourse,
 }: Props) {
@@ -240,6 +243,7 @@ export function QuestionCard({
           late={late}
           busy={busy}
           nextLabel={nextLabel}
+          onClaimed={onClaimed}
           onNext={onNext}
           onShowCourse={onShowCourse}
         />
@@ -396,13 +400,15 @@ type CorrectedProps = {
   late: boolean // Claude grades it still, after 15 s: the session goes on
   busy: boolean
   nextLabel: string
+  onClaimed?: (answerId: number, claimId: number) => void
   onNext: () => void
   onShowCourse?: () => void
 }
 
 /** The correction: the options of an MCQ, or the answer written; the mistake made while
  *  sure (R10); what Claude says of an open answer (T6) or what was expected; the way
- *  on. While Claude grades an open answer, only the wait shows, 15 s at most. */
+ *  on, and "Je pense avoir juste" for a value or a short answer found wrong (T5). While
+ *  Claude grades an open answer, only the wait shows, 15 s at most. */
 function Corrected({
   question,
   answered,
@@ -410,10 +416,36 @@ function Corrected({
   late,
   busy,
   nextLabel,
+  onClaimed,
   onNext,
   onShowCourse,
 }: CorrectedProps) {
   const { chosen, text, correction } = answered
+  const [claimed, setClaimed] = useState(false)
+  const [claiming, setClaiming] = useState(false)
+  const [problem, setProblem] = useState<string>()
+  const claimable =
+    (question.format === 'value' || question.format === 'short') &&
+    correction !== undefined &&
+    !correction.correct &&
+    text !== null
+
+  /** Je pense avoir juste: Claude judges the answer again, and the session goes on. */
+  async function claim() {
+    if (!correction) return
+    setClaiming(true)
+    setProblem(undefined)
+    try {
+      const { id } = await claimAnswer(correction.answer_id)
+      setClaimed(true)
+      onClaimed?.(correction.answer_id, id)
+    } catch (reason) {
+      setProblem(messageOf(reason))
+    } finally {
+      setClaiming(false)
+    }
+  }
+
   if (grading?.status === 'pending' && !late) {
     return (
       <p className="grading-wait" role="status">
@@ -457,6 +489,13 @@ function Corrected({
           {correction.explanation && <span>{correction.explanation}</span>}
         </div>
       )}
+      {claimed && (
+        <p className="hint claim-sent" role="status">
+          Envoyé à Claude. S'il te donne raison, la question sera reprogrammée comme juste et
+          ta formulation ajoutée aux réponses acceptées.
+        </p>
+      )}
+      {problem && <Notice>{problem}</Notice>}
       <div className="actions">
         <button type="button" className="button primary" disabled={busy} onClick={onNext}>
           {nextLabel}
@@ -464,6 +503,16 @@ function Corrected({
         {onShowCourse && (
           <button type="button" className="button ghost" onClick={onShowCourse}>
             Voir le cours
+          </button>
+        )}
+        {claimable && !claimed && (
+          <button
+            type="button"
+            className="button ghost"
+            disabled={claiming}
+            onClick={() => void claim()}
+          >
+            Je pense avoir juste
           </button>
         )}
       </div>

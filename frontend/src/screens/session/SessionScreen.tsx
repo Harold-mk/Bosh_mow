@@ -31,7 +31,14 @@ import {
   QuestionCard,
   validated,
 } from './QuestionCard.tsx'
-import { leaving, type Result, Review, resultOf, withGrading } from './Review.tsx'
+import {
+  leaving,
+  type Result,
+  Review,
+  resultOf,
+  withClaim,
+  withGrading,
+} from './Review.tsx'
 import './SessionScreen.css'
 import { ThoughtSorting } from './ThoughtSorting.tsx'
 
@@ -245,6 +252,9 @@ export function SessionScreen() {
               nextLabel={nextLabel}
               onAnswer={answer}
               onGraded={(grading) => setResults((done) => withGrading(done, grading))}
+              onClaimed={(answerId, claimId) =>
+                setResults((done) => withClaim(done, answerId, claimId))
+              }
               onNext={goOn}
               onShowCourse={() => setCourse(phase.asked.question)}
             />

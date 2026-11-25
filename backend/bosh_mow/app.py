@@ -23,7 +23,7 @@ from bosh_mow.db.connection import connect
 from bosh_mow.db.migrate import apply_migrations
 from bosh_mow.grading.open_answers import grade_open
 from bosh_mow.paths import default_data_folder
-from bosh_mow.study import gradings
+from bosh_mow.study import claims, gradings
 from bosh_mow.subjects import descriptions, proposal
 
 HOST = "127.0.0.1"
@@ -92,6 +92,7 @@ def main() -> None:
         preparation.NOTIONS_TASK: preparation.notions_handler(gateway),
         preparation.QUESTIONS_TASK: preparation.questions_handler(gateway),
         gradings.TASK: gradings.grading_handler(grade),
+        claims.TASK: claims.claim_handler(grade),
     }
     start_worker(folder.database, handlers, threading.Event())
     start_server(api, port)

@@ -217,6 +217,30 @@ def test_an_open_answer_needs_claude_and_a_grading_that_exists(
     assert confided.status_code == 404
 
 
+def test_a_claim_through_the_api(client: TestClient, db: sqlite3.Connection) -> None:
+    notion_id, _ = make_subject(db)
+    value = question_of(db, notion_id, "value")
+    session = client.post("/api/sessions").json()["id"]
+    given = {
+        "question_id": value,
+        "chosen_option": None,
+        "answer_text": "8",
+        "confidence": "sure",
+        "seconds": 5,
+    }
+    answer_id = client.post(f"/api/sessions/{session}/answers", json=given).json()[
+        "answer_id"
+    ]
+
+    started = client.post(f"/api/answers/{answer_id}/claim")
+    state = client.get(f"/api/claims/{started.json()['id']}").json()
+
+    assert started.status_code == 202
+    assert (state["status"], state["answer_id"]) == ("pending", answer_id)  # worker
+    assert client.post(f"/api/answers/{answer_id}/claim").status_code == 400  # once
+    assert client.get("/api/claims/99").status_code == 404
+
+
 def test_thoughts_and_wanderings_through_the_api(client: TestClient) -> None:
     session = client.post("/api/sessions").json()["id"]
     thought = client.post(

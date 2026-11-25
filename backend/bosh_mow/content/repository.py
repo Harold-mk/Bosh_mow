@@ -148,6 +148,25 @@ def report_question(connection: sqlite3.Connection, question_id: int) -> None:
         raise ValueError(f"Question {question_id} does not exist.")
 
 
+def accept_wording(
+    connection: sqlite3.Connection, question_id: int, wording: str
+) -> None:
+    """Add a wording to the accepted answers of a value or a short answer, once Claude
+    found it right after a claim ("Je pense avoir juste"): right at once next time."""
+    question = get_question(connection, question_id)
+    if question is None:
+        raise ValueError(f"Question {question_id} does not exist.")
+    accepted = list(question.content.get("accepted", []))
+    if wording in accepted:
+        return
+    content = {**question.content, "accepted": [*accepted, wording]}
+    with connection:
+        connection.execute(
+            "UPDATE question SET content = ? WHERE id = ?",
+            (json.dumps(content, ensure_ascii=False), question_id),
+        )
+
+
 def mark_studied(connection: sqlite3.Connection, notion_id: int) -> None:
     """Note that the first study of a notion is done (R13)."""
     with connection:

@@ -106,6 +106,16 @@ export type Correction = {
   explanations: string[] // an MCQ: of each option, by number from 1, in French
   expected: string | null // a value, a short or an open answer: what was expected
   explanation: string | null // a value or a short answer: how to find it, in French
+  answer_id: number // the answer saved, which "Je pense avoir juste" refers to
+}
+
+/** "Je pense avoir juste" (T5): Claude judges a value or a short answer again. */
+export type ClaimState = {
+  id: number
+  answer_id: number
+  status: 'pending' | 'accepted' | 'refused' | 'failed'
+  comment: string | null // Claude's reason, in French
+  detail: string | null // why it failed
 }
 
 /** A criterion of an open answer, met or not, with Claude's sentence about it (T6). */
@@ -183,6 +193,15 @@ export function giveConfidence(
 
 export function getGrading(gradingId: number): Promise<GradingState> {
   return request('GET', `/gradings/${gradingId}`)
+}
+
+/** Je pense avoir juste: Claude judges the answer again, in the background. */
+export function claimAnswer(answerId: number): Promise<{ id: number }> {
+  return request('POST', `/answers/${answerId}/claim`)
+}
+
+export function getClaim(claimId: number): Promise<ClaimState> {
+  return request('GET', `/claims/${claimId}`)
 }
 
 /** End a session, once its thoughts are sorted (R17): whether the day is successful. */

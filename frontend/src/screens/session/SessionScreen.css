@@ -418,6 +418,13 @@ button.option:hover:not([aria-checked='true']) {
   line-height: 1.5;
 }
 
+/* Je pense avoir juste: sent to Claude, the session goes on (T5). */
+.claim-sent {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 /* The end of a session: the questions to review, mistakes made while sure first. */
 .recap {
   display: flex;
