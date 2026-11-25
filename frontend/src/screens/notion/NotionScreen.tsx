@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import {
-  type Confidence,
   decideThought,
   endSession,
   getNextNotion,
   getNotion,
   getNotionPages,
   getThoughts,
-  giveAnswer,
   messageOf,
   type NotionSession,
   type NotionToStudy,
@@ -24,7 +22,14 @@ import { AwayCheck } from '../session/AwayCheck.tsx'
 import { Chrono } from '../session/Chrono.tsx'
 import { FocusHeader } from '../session/FocusHeader.tsx'
 import { FocusTools } from '../session/FocusTools.tsx'
-import { type Answered, type Asked, QuestionCard } from '../session/QuestionCard.tsx'
+import {
+  type Answered,
+  type Asked,
+  type Given,
+  QuestionCard,
+  validated,
+} from '../session/QuestionCard.tsx'
+import { leaving, type Result, Review, resultOf, withGrading } from '../session/Review.tsx'
 import '../session/SessionScreen.css'
 import { ThoughtSorting } from '../session/ThoughtSorting.tsx'
 import { ReaderOverlay } from '../reader/ReaderOverlay.tsx'
@@ -38,7 +43,7 @@ const STEPS: Record<Step, { name: string; seconds: number }> = {
   warmup: { name: 'Échauffement', seconds: 3 * 60 },
   pretest: { name: 'Prétest', seconds: 2 * 60 },
   reading: { name: 'Lecture', seconds: 10 * 60 },
-  test: { name: 'Test', seconds: 3 * 60 },
+  test: { name: 'Test', seconds: 5 * 60 }, // 5 questions, the "why?" one written
   pause: { name: 'Pause', seconds: 5 * 60 }, // R15
 }
 const ORDER = ['warmup', 'pretest', 'reading', 'test'] as const // then the end, the pause
@@ -66,7 +71,7 @@ type Pretested = { question: QuestionToAsk; answered: Answered }
 /** Notion: a new notion in full screen, as the queue (R16). A question already
  *  succeeded to warm up (R15), the pretests, the guided reading of its pages, then the
  *  test, whose answers enter the reviews (R13); a pause of 5 minutes, after which the
- *  next notion starts (R15). Exercises come with lot 4, the "why?" question with lot 3. */
+ *  next notion starts (R15). Exercises come with lot 4. */
 export function NotionScreen() {
   const navigate = useNavigate()
   const { notionId } = useParams()
@@ -76,6 +81,7 @@ export function NotionScreen() {
   const [study, setStudy] = useState<NotionSession>()
   const [pages, setPages] = useState<PageText[]>([])
   const [pretested, setPretested] = useState<Pretested[]>([])
+  const [results, setResults] = useState<Result[]>([]) // of the notion, reviewed (R10)
   const [rank, setRank] = useState(0) // notions begun on this screen
   const [step, setStep] = useState<Step>('pretest')
   const [stepStart, setStepStart] = useState(() => Date.now())
@@ -140,6 +146,7 @@ export function NotionScreen() {
       setPages(await getNotionPages(notion.id))
       setStudy(started)
       setPretested([])
+      setResults([])
       setRank((n) => n + 1)
       await enter(started, 'warmup')
     })
@@ -165,20 +172,15 @@ export function NotionScreen() {
     else await end(started, 'done')
   }
 
-  const answer = (chosen: number | null, text: string | null, confidence: Confidence | null) =>
+  const answer = (given: Given) =>
     run(async () => {
       if (!study || phase.kind !== 'question') return
       const { asked } = phase
-      const correction = await giveAnswer(study.session_id, {
-        question_id: asked.question.id,
-        chosen_option: chosen,
-        answer_text: text,
-        confidence,
-        seconds: Math.round((Date.now() - asked.shownAt) / 1000),
-      })
-      const answered = { chosen, text, correction }
+      const answered = await validated(study.session_id, asked, given)
       if (phase.step === 'pretest') {
         setPretested((done) => [...done, { question: asked.question, answered }])
+      } else {
+        setResults((done) => [...done, resultOf(asked.question, answered)])
       }
       setPhase({ ...phase, answered })
     })
@@ -186,6 +188,7 @@ export function NotionScreen() {
   const goOn = () =>
     run(async () => {
       if (!study || phase.kind !== 'question') return
+      setResults(leaving) // an answer still graded is shown at the end (T6)
       const index = phase.index + 1
       if (index < questionsOf(study, phase.step).length) {
         setPhase({ kind: 'question', step: phase.step, index, asked: toAsk(study, phase.step, index) })
@@ -311,9 +314,11 @@ export function NotionScreen() {
                     ? 'QCM · ta réponse est notée, la correction viendra avec ta lecture'
                     : undefined
                 }
+                sessionId={study.session_id}
                 busy={busy}
                 nextLabel={nextLabel(study, phase.step, phase.index)}
                 onAnswer={answer}
+                onGraded={(grading) => setResults((done) => withGrading(done, grading))}
                 onNext={goOn}
                 onShowCourse={() =>
                   setCourse({
@@ -359,6 +364,7 @@ export function NotionScreen() {
           {phase.kind === 'pause' && (
             <Pause
               next={phase.next}
+              results={results}
               busy={busy}
               onShorten={() => phase.next && begin(phase.next)}
               onStop={() => navigate('/accueil')}
@@ -510,6 +516,7 @@ function Reading({ pretested, pages, hidden, busy, onDone, onOpen }: ReadingProp
 /** The correction of a pretest, folded: to look at once the answer is found. */
 function PretestCheck({ question, answered }: Pretested) {
   const { chosen, correction } = answered
+  if (!correction) return null // a pretest is an MCQ, graded at once
   const right = question.options.find((option) => option.number === correction.correct_option)
   const verdict = correction.correct
     ? 'Tu avais vu juste.'
@@ -527,13 +534,15 @@ function PretestCheck({ question, answered }: Pretested) {
 
 type PauseProps = {
   next: NotionToStudy | null
+  results: Result[] // the answers of the notion, reviewed (R10)
   busy: boolean
   onShorten: () => void
   onStop: () => void
 }
 
-/** R15: a fixed pause of 5 minutes; the next notion starts when it ends. */
-function Pause({ next, busy, onShorten, onStop }: PauseProps) {
+/** R15: a fixed pause of 5 minutes, after the questions of the notion to review; the
+ *  next notion starts when it ends. */
+function Pause({ next, results, busy, onShorten, onStop }: PauseProps) {
   return (
     <div className="ended">
       <span className="label">Pause fixe</span>
@@ -542,6 +551,7 @@ function Pause({ next, busy, onShorten, onStop }: PauseProps) {
         La notion est terminée. Profite de la pause pour laisser ton cerveau consolider ce que
         tu viens d'apprendre.
       </p>
+      <Review results={results} />
       <ul className="pause-tips">
         <li>Lève-toi, bois de l'eau, regarde au loin.</li>
         <li>Laisse le téléphone de côté : c'est lui qui transforme 5 minutes en 30.</li>

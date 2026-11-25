@@ -299,6 +299,18 @@ def test_an_open_answer_is_not_graded_by_the_code(db: sqlite3.Connection) -> Non
         answer(db, None, why, None, "sure", 30, NOW, answer_text="Extreme values.")
 
 
+def test_dont_know_an_open_answer_goes_without_claude(db: sqlite3.Connection) -> None:
+    notion_id, _ = make_subject(db)
+    why = question_of(db, notion_id, "open")
+
+    correction = answer(db, None, why, None, None, 6, NOW)
+
+    assert (correction.correct, correction.priority) == (False, False)
+    assert correction.expected is not None
+    assert correction.expected.startswith("One extreme value moves the mean")
+    assert get_card(db, why) is not None  # it comes back soon (R7)
+
+
 def test_the_notions_studied_before_put_their_values_in_the_reviews(
     db: sqlite3.Connection,
 ) -> None:
@@ -324,6 +336,23 @@ def test_the_notions_studied_before_put_their_values_in_the_reviews(
     assert answered is not None and answered.stability is not None
 
 
+def test_the_notions_studied_before_put_their_why_question_in_the_reviews(
+    db: sqlite3.Connection,
+) -> None:
+    """Migration 012: a notion studied before never asked its open question."""
+    studied, _ = make_subject(db)
+    mark_studied(db, studied)
+    later, _ = make_subject(db, "Probabilités", statements=OTHER_STATEMENTS)
+    migration = MIGRATIONS_DIR / "012_review_open_answers.sql"
+
+    db.executescript(migration.read_text(encoding="utf-8"))
+
+    card = get_card(db, question_of(db, studied, "open"))
+    assert card is not None
+    assert card.due <= datetime.now(UTC)
+    assert get_card(db, question_of(db, later, "open")) is None  # not studied yet
+
+
 # Studying a notion (R13)
 
 
@@ -335,8 +364,8 @@ def test_r13_a_notion_session_gives_its_pretests_then_its_test(
     session = start_notion(db, notion_id, TODAY)
 
     assert [q.role for q in session.pretests] == ["pretest", "pretest"]
-    # The open answer waits for its grading by Claude.
-    assert [q.format for q in session.tests] == ["mcq", "mcq", "mcq", "value"]
+    # The test asks every review question, the "why?" one last (R13).
+    assert [q.format for q in session.tests] == ["mcq", "mcq", "mcq", "value", "open"]
     assert [q.id for q in session.tests[:3]] == reviews
     answer(db, session.session_id, session.pretests[0].id, 1, "guess", 8, NOW)
     answer(db, session.session_id, session.tests[0].id, 1, "sure", 8, NOW)

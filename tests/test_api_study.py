@@ -260,6 +260,7 @@ def test_studying_a_notion_through_the_api(
     assert [q["id"] for q in started["tests"]] == [
         *reviews,
         question_of(db, notion_id, "value"),
+        question_of(db, notion_id, "open"),
     ]
 
 

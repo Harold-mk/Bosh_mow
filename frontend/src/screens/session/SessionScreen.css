@@ -296,6 +296,165 @@ button.option:hover:not([aria-checked='true']) {
   font-weight: 600;
 }
 
+/* An open answer: a few lines, sent to Claude with Entrée (T6). */
+.answer-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.answer-text .field {
+  height: auto;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.answer-text .field[readonly] {
+  color: var(--color-text-secondary);
+}
+
+/* Claude grades: three dots light up in turn, as in the mockup. */
+.grading-wait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--color-background);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wait-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.wait-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-line);
+  animation: wait 0.75s infinite;
+}
+
+.wait-dots span:nth-child(2) {
+  animation-delay: 0.25s;
+}
+
+.wait-dots span:nth-child(3) {
+  animation-delay: 0.5s;
+}
+
+@keyframes wait {
+  0%,
+  100% {
+    background: var(--color-line);
+  }
+  33% {
+    background: var(--color-text);
+  }
+}
+
+/* The criteria of an open answer, met or not, each with Claude's sentence (T6). */
+.criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.criteria ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.criteria li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.criterion-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.criteria li.met .criterion-mark {
+  background: var(--color-correct-background);
+  color: var(--color-correct);
+}
+
+.criteria li.missed .criterion-mark {
+  background: var(--color-review-background);
+  color: var(--color-review);
+}
+
+.criterion-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.criterion-comment {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.claude-comment {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* The end of a session: the questions to review, mistakes made while sure first. */
+.recap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recap-list {
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recap-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--color-background);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.recap-note {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.recap-note.sure {
+  font-weight: 600;
+  color: var(--color-review);
+}
+
 /* Confidence (R6): three pills with a gauge of dots and their key. */
 .confidence {
   display: flex;

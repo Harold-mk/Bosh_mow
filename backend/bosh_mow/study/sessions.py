@@ -39,9 +39,6 @@ from bosh_mow.study.scheduling import review
 
 _shuffle = random.Random()
 
-# The formats a session asks; the open answer joins them with its grading by Claude.
-_ASKED_FORMATS = ("mcq", "value", "short")
-
 
 @dataclass(frozen=True)
 class OptionToAsk:
@@ -55,7 +52,7 @@ class QuestionToAsk:
 
     id: int
     role: str
-    format: str  # mcq, value or short
+    format: str  # mcq, value, short or open
     statement: str
     options: list[OptionToAsk]  # an MCQ only
     tolerance: float | None  # a value only: relative, 0.01 for 1 %
@@ -236,7 +233,10 @@ def _grade(
             expected=content["accepted"][0],
             explanation=content.get("explanation"),
         )
-    raise ValueError(f"Question {question.id} is an open answer: Claude grades it.")
+    if text is not None:
+        raise ValueError(f"Question {question.id} is an open answer: Claude grades it.")
+    # "Je ne sais pas" goes without Claude: the model answer, to read at once.
+    return Correction(False, priority=False, expected=content["expected_answer"])
 
 
 def _french(number: float) -> str:
@@ -297,7 +297,7 @@ def start_notion(
     questions = [
         question
         for question in get_questions(connection, notion_id)
-        if question.format in _ASKED_FORMATS and not question.reported
+        if not question.reported
     ]
     if not questions:
         raise ValueError("Les questions de cette notion ne sont pas encore prêtes.")

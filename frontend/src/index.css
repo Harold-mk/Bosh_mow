@@ -87,6 +87,16 @@ a:hover {
   font-weight: 500;
 }
 
+/* Read by screen readers only: what a mark or an icon says. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Small text above a title or a number. */
 .label {
   font-size: 12px;

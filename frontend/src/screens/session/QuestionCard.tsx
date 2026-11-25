@@ -1,23 +1,67 @@
 import { useEffect, useEffectEvent, useState } from 'react'
-import type { Confidence, Correction, QuestionToAsk } from '../../api.ts'
+import {
+  type Confidence,
+  type Correction,
+  type GradingState,
+  getGrading,
+  giveAnswer,
+  giveConfidence,
+  messageOf,
+  type QuestionToAsk,
+  sendOpenAnswer,
+} from '../../api.ts'
 import { Icon } from '../../components/Icon.tsx'
+import { Notice } from '../../components/Notice.tsx'
 import { notForShortcuts } from '../../study.ts'
 
 /** A question on screen, with the label of its place in the queue. */
 export type Asked = { question: QuestionToAsk; label: string; shownAt: number }
 
-/** The answer given, an option or the text of a value or a short answer (both null:
- *  "Je ne sais pas"), and the correction it got. */
-export type Answered = { chosen: number | null; text: string | null; correction: Correction }
+/** An answer as it is validated: an option or a text (both null: "Je ne sais pas"), its
+ *  confidence (R6), and for an open answer the grading already asked of Claude (T6). */
+export type Given = {
+  chosen: number | null
+  text: string | null
+  confidence: Confidence | null
+  gradingId: number | null
+}
+
+/** An answer validated, with its correction: by the code (T5), or by Claude (T6). */
+export type Answered = Given & { correction?: Correction; grading?: GradingState }
+
+/** Validate an answer: graded at once by the code (T5), or, for an open answer already
+ *  sent to Claude, given its confidence (T6), its grading perhaps still on its way. */
+export async function validated(
+  sessionId: number,
+  asked: Asked,
+  given: Given,
+): Promise<Answered> {
+  const seconds = Math.round((Date.now() - asked.shownAt) / 1000)
+  if (given.gradingId !== null && given.confidence !== null) {
+    const confidence = given.confidence
+    const grading = await giveConfidence(given.gradingId, { confidence, seconds })
+    return { ...given, grading }
+  }
+  const correction = await giveAnswer(sessionId, {
+    question_id: asked.question.id,
+    chosen_option: given.chosen,
+    answer_text: given.text,
+    confidence: given.confidence,
+    seconds,
+  })
+  return { ...given, correction }
+}
 
 type Props = {
   asked: Asked
   answered?: Answered // once validated
   reveal?: boolean // false for a pretest: noted, its correction waits for the reading
   note?: string // under the statement: the format and how it is corrected
+  sessionId: number // where an open answer is sent
   busy: boolean
   nextLabel: string
-  onAnswer: (chosen: number | null, text: string | null, confidence: Confidence | null) => void
+  onAnswer: (given: Given) => void
+  onGraded?: (grading: GradingState) => void // an open answer graded after its validation
   onNext: () => void
   onShowCourse?: () => void // Voir le cours: its pages in the reader (R4)
 }
@@ -28,8 +72,10 @@ const LEVELS: { confidence: Confidence; name: string; dots: number }[] = [
   { confidence: 'hesitant', name: 'Hésitant', dots: 2 },
   { confidence: 'guess', name: 'Au hasard', dots: 1 },
 ]
+const WAIT_SECONDS = 15 // T6: then the session goes on, and the grading comes at the end
+const READ_EVERY_MS = 700 // how often a grading on its way is read
 
-/** Under the statement: the format of the question and how it is corrected (T5). */
+/** Under the statement: the format of the question and how it is corrected. */
 function noteOf(question: QuestionToAsk): string {
   if (question.format === 'value') {
     const percent = ((question.tolerance ?? 0.01) * 100).toLocaleString('fr-FR', {
@@ -38,34 +84,81 @@ function noteOf(question: QuestionToAsk): string {
     return `Valeur · corrigée instantanément, à ${percent} % près`
   }
   if (question.format === 'short') return 'Réponse courte · corrigée instantanément'
+  if (question.format === 'open') return 'Réponse ouverte · corrigée par Claude'
   return 'QCM · corrigé instantanément'
 }
 
 /** A question of the queue: its options or its field, and the confidence (R6), then its
- *  correction (T5). Keys: A to D for an option, 1 to 3 for the confidence, Entrée to go
- *  on. In the field of a value or a short answer, Entrée leaves it for the confidence. */
+ *  correction. Keys: A to D for an option, 1 to 3 for the confidence, Entrée to go on.
+ *  In a field, Entrée leaves it for the confidence; an open answer then goes to Claude,
+ *  who grades it while the confidence is chosen (T6). */
 export function QuestionCard({
   asked,
   answered,
   reveal = true,
   note,
+  sessionId,
   busy,
   nextLabel,
   onAnswer,
+  onGraded,
   onNext,
   onShowCourse,
 }: Props) {
   const [chosen, setChosen] = useState<number>()
   const [text, setText] = useState('')
   const [confidence, setConfidence] = useState<Confidence>()
+  const [sent, setSent] = useState<{ id: number; at: number }>() // to Claude (T6)
+  const [sending, setSending] = useState(false)
+  const [problem, setProblem] = useState<string>()
+  const [read, setRead] = useState<GradingState>() // the grading, read since validated
+  const [now, setNow] = useState(() => Date.now())
   const { question } = asked
-  const written = question.format !== 'mcq' // a value or a short answer, in a field
+  const open = question.format === 'open'
+  const written = question.format !== 'mcq' // a field: a value, a short or an open answer
   const given = written ? text.trim() !== '' : chosen !== undefined
-  const ready = given && confidence !== undefined
+  const ready = given && confidence !== undefined && !sending
 
-  const validate = () => {
-    if (!ready) return
-    onAnswer(written ? null : (chosen ?? null), written ? text.trim() : null, confidence)
+  const grading = read ?? answered?.grading
+  const waiting = grading?.status === 'pending'
+  const late = waiting && sent !== undefined && now - sent.at >= WAIT_SECONDS * 1000
+  const canGoOn = !waiting || late
+
+  /** Send an open answer to Claude at once; its grading, or nothing if it failed. */
+  async function send(): Promise<number | undefined> {
+    if (sent) return sent.id
+    setSending(true)
+    setProblem(undefined)
+    try {
+      const { id } = await sendOpenAnswer(sessionId, {
+        question_id: question.id,
+        answer_text: text.trim(),
+      })
+      setSent({ id, at: Date.now() })
+      return id
+    } catch (reason) {
+      setProblem(messageOf(reason))
+      return undefined
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function validate() {
+    if (!ready || confidence === undefined) return
+    if (open) {
+      const gradingId = await send()
+      if (gradingId !== undefined) {
+        onAnswer({ chosen: null, text: text.trim(), confidence, gradingId })
+      }
+      return
+    }
+    onAnswer({
+      chosen: written ? null : (chosen ?? null),
+      text: written ? text.trim() : null,
+      confidence,
+      gradingId: null,
+    })
   }
 
   const onKey = useEffectEvent((event: KeyboardEvent) => {
@@ -75,8 +168,8 @@ export function QuestionCard({
       const target = event.target
       if (target instanceof HTMLButtonElement && target.getAttribute('role') !== 'radio') return
       event.preventDefault()
-      if (answered) onNext()
-      else validate()
+      if (!answered) void validate()
+      else if (canGoOn) onNext()
       return
     }
     if (answered) return
@@ -91,13 +184,39 @@ export function QuestionCard({
     return () => document.removeEventListener('keydown', listener)
   }, [])
 
+  // An open answer validated while Claude grades it: its grading is read until it ends.
+  const graded = useEffectEvent((state: GradingState) => {
+    setRead(state)
+    onGraded?.(state)
+  })
+  const gradingId = waiting ? grading?.id : undefined
+  useEffect(() => {
+    if (gradingId === undefined) return
+    const timer = setInterval(() => {
+      setNow(Date.now())
+      getGrading(gradingId).then(
+        (state) => {
+          if (state.status !== 'pending') graded(state)
+        },
+        () => {}, // read again at the next turn
+      )
+    }, READ_EVERY_MS)
+    return () => clearInterval(timer)
+  }, [gradingId])
+
+  const verdict = answered?.correction
+    ? answered.correction.correct
+    : grading?.status === 'done'
+      ? grading.correct
+      : null
   return (
     <>
       <div className="question-head">
         <span className="label">{asked.label}</span>
         {answered &&
           reveal &&
-          (answered.correction.correct ? (
+          verdict !== null &&
+          (verdict ? (
             <span className="badge correct">
               <Icon name="check" size={14} />
               Juste
@@ -112,10 +231,13 @@ export function QuestionCard({
         <h1 lang="en">{question.statement}</h1>
         <span className="label">{note ?? noteOf(question)}</span>
       </div>
+      {problem && <Notice>{problem}</Notice>}
       {answered && reveal && (
         <Corrected
           question={question}
           answered={answered}
+          grading={grading}
+          late={late}
           busy={busy}
           nextLabel={nextLabel}
           onNext={onNext}
@@ -134,7 +256,38 @@ export function QuestionCard({
       )}
       {!answered && (
         <>
-          {written ? (
+          {open ? (
+            <div className="answer-text">
+              <label htmlFor="answer-text" className="label">
+                Ta réponse
+              </label>
+              <textarea
+                id="answer-text"
+                className="field"
+                rows={4}
+                autoFocus
+                placeholder="Explique avec tes mots…"
+                value={text}
+                readOnly={sent !== undefined || sending}
+                onChange={(event) => setText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
+                    return // Maj+Entrée goes to the line
+                  }
+                  event.preventDefault()
+                  if (text.trim() === '' || sending) return
+                  event.currentTarget.blur() // then 1, 2 or 3 for the confidence
+                  if (ready) void validate()
+                  else void send()
+                }}
+              />
+              <span className="hint">
+                {sent
+                  ? 'Envoyée : Claude corrige pendant que tu choisis ta confiance.'
+                  : 'Réponds sans regarder le cours. Entrée envoie ta réponse à Claude, Maj+Entrée va à la ligne.'}
+              </span>
+            </div>
+          ) : written ? (
             <div className="answer-line">
               <label htmlFor="answer-line" className="label">
                 {question.format === 'value' ? 'Ta valeur' : 'Ta réponse'}
@@ -156,7 +309,7 @@ export function QuestionCard({
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter') return
                   event.preventDefault()
-                  if (ready) validate()
+                  if (ready) void validate()
                   else if (given) event.currentTarget.blur() // then 1, 2 or 3
                 }}
               />
@@ -213,18 +366,22 @@ export function QuestionCard({
               type="button"
               className="button primary"
               disabled={!ready || busy}
-              onClick={validate}
+              onClick={() => void validate()}
             >
               Valider
             </button>
-            <button
-              type="button"
-              className="button ghost"
-              disabled={busy}
-              onClick={() => onAnswer(null, null, null)}
-            >
-              Je ne sais pas
-            </button>
+            {!sent && (
+              <button
+                type="button"
+                className="button ghost"
+                disabled={busy || sending}
+                onClick={() =>
+                  onAnswer({ chosen: null, text: null, confidence: null, gradingId: null })
+                }
+              >
+                Je ne sais pas
+              </button>
+            )}
           </div>
         </>
       )}
@@ -235,70 +392,68 @@ export function QuestionCard({
 type CorrectedProps = {
   question: QuestionToAsk
   answered: Answered
+  grading?: GradingState // an open answer: its grading by Claude, as last read
+  late: boolean // Claude grades it still, after 15 s: the session goes on
   busy: boolean
   nextLabel: string
   onNext: () => void
   onShowCourse?: () => void
 }
 
-/** The correction: the options of an MCQ, the right one and a wrong choice with their
- *  explanation; or the answer written, then what was expected and why. Then the mistake
- *  made while sure (R10), and the way on. */
+/** The correction: the options of an MCQ, or the answer written; the mistake made while
+ *  sure (R10); what Claude says of an open answer (T6) or what was expected; the way
+ *  on. While Claude grades an open answer, only the wait shows, 15 s at most. */
 function Corrected({
   question,
   answered,
+  grading,
+  late,
   busy,
   nextLabel,
   onNext,
   onShowCourse,
 }: CorrectedProps) {
   const { chosen, text, correction } = answered
+  if (grading?.status === 'pending' && !late) {
+    return (
+      <p className="grading-wait" role="status">
+        <span className="wait-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+        Claude corrige ta réponse…
+      </p>
+    )
+  }
+  const priority = correction?.priority ?? grading?.priority ?? false
   return (
     <>
-      {question.format === 'mcq' ? (
-        <div className="options">
-          {question.options.map((option, index) => {
-            const right = option.number === correction.correct_option
-            const wrong = option.number === chosen && !right
-            return (
-              <div
-                key={option.number}
-                className={`option result${right ? ' right' : ''}${wrong ? ' wrong' : ''}`}
-              >
-                <span className="option-key">{LETTERS[index]}</span>
-                <span className="option-body">
-                  <span className="option-text" lang="en">
-                    {option.text}
-                  </span>
-                  {(right || wrong) && (
-                    <span className="option-explanation">
-                      <strong>{right ? 'Bonne réponse.' : 'Ton choix.'}</strong>{' '}
-                      {correction.explanations[option.number - 1]}
-                    </span>
-                  )}
-                </span>
-              </div>
-            )
-          })}
-        </div>
+      {question.format === 'mcq' && correction ? (
+        <Options question={question} chosen={chosen} correction={correction} />
       ) : (
         <div className="given">
           <span className="label">Ta réponse</span>
           {text ?? 'Je ne sais pas'}
         </div>
       )}
-      {correction.priority && (
+      {priority && (
         <p className="priority">
           <strong>Tu étais sûr de toi.</strong> C'est le type d'erreur qu'on retient le mieux
           une fois corrigé : prends le temps de lire l'explication.
         </p>
       )}
-      {question.format !== 'mcq' && (
+      {grading && <ClaudeGrading grading={grading} />}
+      {correction && question.format !== 'mcq' && (
         <div className="correction">
           <span className="label">Correction</span>
-          <span>
-            Réponse attendue : <strong>{correction.expected}</strong>
-          </span>
+          {question.format === 'open' ? (
+            <span lang="en">{correction.expected}</span>
+          ) : (
+            <span>
+              Réponse attendue : <strong>{correction.expected}</strong>
+            </span>
+          )}
           {correction.explanation && <span>{correction.explanation}</span>}
         </div>
       )}
@@ -311,6 +466,93 @@ function Corrected({
             Voir le cours
           </button>
         )}
+      </div>
+    </>
+  )
+}
+
+/** The options of an MCQ after the answer: the right one and a wrong choice, with
+ *  their explanation. */
+function Options({
+  question,
+  chosen,
+  correction,
+}: {
+  question: QuestionToAsk
+  chosen: number | null
+  correction: Correction
+}) {
+  return (
+    <div className="options">
+      {question.options.map((option, index) => {
+        const right = option.number === correction.correct_option
+        const wrong = option.number === chosen && !right
+        return (
+          <div
+            key={option.number}
+            className={`option result${right ? ' right' : ''}${wrong ? ' wrong' : ''}`}
+          >
+            <span className="option-key">{LETTERS[index]}</span>
+            <span className="option-body">
+              <span className="option-text" lang="en">
+                {option.text}
+              </span>
+              {(right || wrong) && (
+                <span className="option-explanation">
+                  <strong>{right ? 'Bonne réponse.' : 'Ton choix.'}</strong>{' '}
+                  {correction.explanations[option.number - 1]}
+                </span>
+              )}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** What Claude says of an open answer (T6): each criterion met or not, with its
+ *  sentence, the comment, then the model answer. */
+function ClaudeGrading({ grading }: { grading: GradingState }) {
+  return (
+    <>
+      {grading.status === 'pending' && (
+        <p className="grading-wait" role="status">
+          Claude met plus de temps que prévu. Sa correction s'affichera à la fin, et ta
+          réponse comptera dès qu'elle arrive.
+        </p>
+      )}
+      {grading.status === 'failed' && (
+        <p className="grading-wait" role="status">
+          Claude n'a pas pu corriger ta réponse : elle n'est pas comptée, et la question
+          reviendra.
+        </p>
+      )}
+      {grading.status === 'done' && (
+        <div className="criteria">
+          <span className="label">Critères vérifiés par Claude</span>
+          <ul>
+            {grading.criteria.map((result, index) => (
+              <li key={index} className={result.met ? 'met' : 'missed'}>
+                <span className="criterion-mark" aria-hidden="true">
+                  <Icon name={result.met ? 'check' : 'close'} size={12} />
+                </span>
+                <span className="criterion-body">
+                  <span className="visually-hidden">
+                    {result.met ? 'Rempli : ' : 'Non rempli : '}
+                  </span>
+                  <span lang="en">{result.criterion}</span>
+                  <span className="criterion-comment">{result.comment}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {grading.comment && <p className="claude-comment">{grading.comment}</p>}
+        </div>
+      )}
+      <div className="correction">
+        <span className="label">Correction</span>
+        <span lang="en">{grading.expected_answer}</span>
       </div>
     </>
   )

@@ -88,7 +88,7 @@ export type OptionToAsk = { number: number; text: string }
 export type QuestionToAsk = {
   id: number
   role: 'pretest' | 'review'
-  format: 'mcq' | 'value' | 'short' // the open answer comes with its grading by Claude
+  format: 'mcq' | 'value' | 'short' | 'open' // the open answer is graded by Claude (T6)
   statement: string // in English (R5)
   options: OptionToAsk[] // an MCQ only
   tolerance: number | null // a value only: relative, 0.01 for 1 %
@@ -104,8 +104,24 @@ export type Correction = {
   priority: boolean // a mistake made while sure (R10)
   correct_option: number | null // an MCQ: the right option
   explanations: string[] // an MCQ: of each option, by number from 1, in French
-  expected: string | null // a value or a short answer: what was expected
+  expected: string | null // a value, a short or an open answer: what was expected
   explanation: string | null // a value or a short answer: how to find it, in French
+}
+
+/** A criterion of an open answer, met or not, with Claude's sentence about it (T6). */
+export type CriterionResult = { criterion: string; met: boolean; comment: string }
+
+/** Where the grading of an open answer by Claude stands (T6). */
+export type GradingState = {
+  id: number
+  question_id: number
+  status: 'pending' | 'done' | 'failed'
+  correct: boolean | null // once done: every criterion met
+  priority: boolean // a mistake made while sure (R10)
+  criteria: CriterionResult[] // once done
+  comment: string | null // once done, in French
+  expected_answer: string // the model answer, in English
+  detail: string | null // why it failed
 }
 
 /** A thought put aside during a session, to plan or drop before its end (R17). */
@@ -146,6 +162,27 @@ export function giveAnswer(
   },
 ): Promise<Correction> {
   return request('POST', `/sessions/${sessionId}/answers`, answer)
+}
+
+/** Send an open answer to Claude at once (T6): the grading runs while the confidence
+ *  is chosen. */
+export function sendOpenAnswer(
+  sessionId: number,
+  answer: { question_id: number; answer_text: string },
+): Promise<{ id: number }> {
+  return request('POST', `/sessions/${sessionId}/gradings`, answer)
+}
+
+/** The confidence in an open answer already sent (R6): it counts once graded. */
+export function giveConfidence(
+  gradingId: number,
+  given: { confidence: Confidence; seconds: number },
+): Promise<GradingState> {
+  return request('POST', `/gradings/${gradingId}/confidence`, given)
+}
+
+export function getGrading(gradingId: number): Promise<GradingState> {
+  return request('GET', `/gradings/${gradingId}`)
 }
 
 /** End a session, once its thoughts are sorted (R17): whether the day is successful. */

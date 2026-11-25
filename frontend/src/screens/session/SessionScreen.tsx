@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  type Confidence,
   decideThought,
   endSession,
   getNextNotion,
   getThoughts,
   getToday,
-  giveAnswer,
   messageOf,
   type NotionToStudy,
   nextQuestion,
@@ -26,7 +24,14 @@ import { AwayCheck } from './AwayCheck.tsx'
 import { Chrono, Progress } from './Chrono.tsx'
 import { FocusHeader } from './FocusHeader.tsx'
 import { FocusTools } from './FocusTools.tsx'
-import { type Answered, type Asked, QuestionCard } from './QuestionCard.tsx'
+import {
+  type Answered,
+  type Asked,
+  type Given,
+  QuestionCard,
+  validated,
+} from './QuestionCard.tsx'
+import { leaving, type Result, Review, resultOf, withGrading } from './Review.tsx'
 import './SessionScreen.css'
 import { ThoughtSorting } from './ThoughtSorting.tsx'
 
@@ -53,6 +58,7 @@ export function SessionScreen() {
   const [phase, setPhase] = useState<Phase>({ kind: 'ready' })
   const [session, setSession] = useState<Started>()
   const [answered, setAnswered] = useState<number[]>([]) // each question answered, once
+  const [results, setResults] = useState<Result[]>([]) // reviewed at the end (R10)
   const [now, setNow] = useState(() => Date.now())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -117,27 +123,23 @@ export function SessionScreen() {
       else await end(started, 'done')
     })
 
-  const answer = (chosen: number | null, text: string | null, confidence: Confidence | null) =>
+  const answer = (given: Given) =>
     run(async () => {
       if (!session || phase.kind !== 'question') return
       const { asked } = phase
-      const correction = await giveAnswer(session.id, {
-        question_id: asked.question.id,
-        chosen_option: chosen,
-        answer_text: text,
-        confidence,
-        seconds: Math.round((Date.now() - asked.shownAt) / 1000),
-      })
+      const answered = await validated(session.id, asked, given)
       // The next question is read now: its button says when the queue is over.
       const next = await nextQuestion(session.id)
       const id = asked.question.id
       setAnswered((done) => (done.includes(id) ? done : [...done, id]))
-      setPhase({ kind: 'corrected', asked, answered: { chosen, text, correction }, next })
+      setResults((done) => [...done, resultOf(asked.question, answered)])
+      setPhase({ kind: 'corrected', asked, answered, next })
     })
 
   const goOn = () =>
     run(async () => {
       if (!session || phase.kind !== 'corrected') return
+      setResults(leaving) // an answer still graded is shown at the end (T6)
       if (phase.next === null) await end(session, 'done')
       else if (timeUp) await end(session, 'time')
       else setPhase({ kind: 'question', asked: toAsk(phase.next, session.planned) })
@@ -233,14 +235,16 @@ export function SessionScreen() {
             ) : (
               <NothingDue notion={notion} />
             ))}
-          {(phase.kind === 'question' || phase.kind === 'corrected') && (
+          {session && (phase.kind === 'question' || phase.kind === 'corrected') && (
             <QuestionCard
               key={phase.asked.shownAt}
               asked={phase.asked}
               answered={phase.kind === 'corrected' ? phase.answered : undefined}
+              sessionId={session.id}
               busy={busy}
               nextLabel={nextLabel}
               onAnswer={answer}
+              onGraded={(grading) => setResults((done) => withGrading(done, grading))}
               onNext={goOn}
               onShowCourse={() => setCourse(phase.asked.question)}
             />
@@ -255,6 +259,7 @@ export function SessionScreen() {
               minimumDone={phase.minimumDone}
               minimum={minimum}
               notion={notion}
+              results={results}
             />
           )}
         </section>
@@ -322,10 +327,12 @@ type EndedProps = {
   minimumDone: boolean
   minimum: boolean
   notion: NotionToStudy | null
+  results: Result[] // the answers of the session, reviewed (R10)
 }
 
-/** The end of the queue: the minimum of the day, then a new notion if one is ready. */
-function Ended({ ending, rest, minimumDone, minimum, notion }: EndedProps) {
+/** The end of the queue: the minimum of the day, the questions to review, then a new
+ *  notion if one is ready. */
+function Ended({ ending, rest, minimumDone, minimum, notion, results }: EndedProps) {
   const timeUp = ending === 'time'
   const back =
     rest > 0
@@ -364,6 +371,7 @@ function Ended({ ending, rest, minimumDone, minimum, notion }: EndedProps) {
       <span className="label">{label}</span>
       <h1>{title}</h1>
       {text && <p>{text}</p>}
+      <Review results={results} />
       <div className="actions">
         {minimum || !notion ? stop(true) : go(true)}
         {notion && (minimum ? go(false) : stop(false))}
