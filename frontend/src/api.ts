@@ -96,6 +96,19 @@ export type QuestionToAsk = {
   resource_id: number // where its answer is (R4)
   first_page: number
   last_page: number
+  exercise: ExerciseView | null // an exercise (T3), asked without confidence
+}
+
+/** An example worked step by step, to read before a solo problem (R14). */
+export type WorkedExample = { statement: string; steps: string[] }
+
+/** What an exercise shows before its answer (T3). */
+export type ExerciseView = {
+  kind: 'worked' | 'completion' | 'solo'
+  topic: string // what the exercises of its notion practise, in English
+  given: string[] // all the steps of a worked example, the first of a completion
+  to_do: number // the steps left to the student
+  worked_example: WorkedExample | null // in a review, while it is offered (R14)
 }
 
 /** The correction of an answer, given at once and without AI (T5). */
@@ -107,6 +120,7 @@ export type Correction = {
   expected: string | null // a value, a short or an open answer: what was expected
   explanation: string | null // a value or a short answer: how to find it, in French
   answer_id: number // the answer saved, which "Je pense avoir juste" refers to
+  solution: string[] // an exercise: every step of its solution
 }
 
 /** "Je pense avoir juste" (T5): Claude judges a value or a short answer again. */
@@ -133,6 +147,10 @@ export type GradingState = {
   comment: string | null // once done, in French
   expected_answer: string // the model answer, in English
   detail: string | null // why it failed
+  solution: string[] // an exercise: every step of its solution
+  points: number | null // an exercise, once graded: the points earned…
+  out_of: number | null // … out of those of its steps to do
+  dropped_at: number | null // an exercise: its first step to do missed, from 1
 }
 
 /** A thought put aside during a session, to plan or drop before its end (R17). */
@@ -179,7 +197,11 @@ export function giveAnswer(
  *  is chosen. */
 export function sendOpenAnswer(
   sessionId: number,
-  answer: { question_id: number; answer_text: string },
+  answer: {
+    question_id: number
+    answer_text: string
+    seconds?: number // an exercise: its answer is given as it is sent, no confidence
+  },
 ): Promise<{ id: number }> {
   return request('POST', `/sessions/${sessionId}/gradings`, answer)
 }
@@ -256,6 +278,7 @@ export type NotionSession = {
   warmup: QuestionToAsk | null // a question already succeeded, first (R15)
   pretests: QuestionToAsk[] // before the reading, not scheduled
   tests: QuestionToAsk[] // after the reading: they enter the reviews
+  exercises: QuestionToAsk[] // then: worked example, completion, solo problem (R14)
 }
 
 export function startNotion(notionId: number): Promise<NotionSession> {

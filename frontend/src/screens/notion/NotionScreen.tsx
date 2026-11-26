@@ -20,6 +20,7 @@ import { Notice } from '../../components/Notice.tsx'
 import { setFullscreen } from '../../fullscreen.ts'
 import { AwayCheck } from '../session/AwayCheck.tsx'
 import { Chrono } from '../session/Chrono.tsx'
+import { ExerciseCard } from '../session/ExerciseCard.tsx'
 import { FocusHeader } from '../session/FocusHeader.tsx'
 import { FocusTools } from '../session/FocusTools.tsx'
 import {
@@ -42,18 +43,20 @@ import { ThoughtSorting } from '../session/ThoughtSorting.tsx'
 import { ReaderOverlay } from '../reader/ReaderOverlay.tsx'
 import './NotionScreen.css'
 
-/** The steps of a new notion (R13), with their time; exercises come with lot 4. */
-type Step = 'warmup' | 'pretest' | 'reading' | 'test' | 'pause'
-type AskingStep = 'warmup' | 'pretest' | 'test'
+/** The steps of a new notion (R13, R14), with their time. */
+type Step = 'warmup' | 'pretest' | 'reading' | 'test' | 'exercise' | 'pause'
+type AskingStep = 'warmup' | 'pretest' | 'test' | 'exercise'
 
 const STEPS: Record<Step, { name: string; seconds: number }> = {
   warmup: { name: 'Échauffement', seconds: 3 * 60 },
   pretest: { name: 'Prétest', seconds: 2 * 60 },
   reading: { name: 'Lecture', seconds: 10 * 60 },
   test: { name: 'Test', seconds: 5 * 60 }, // 5 questions, the "why?" one written
+  exercise: { name: 'Exercice', seconds: 8 * 60 }, // worked example, completion, solo
   pause: { name: 'Pause', seconds: 5 * 60 }, // R15
 }
-const ORDER = ['warmup', 'pretest', 'reading', 'test'] as const // then the end, the pause
+// Then the end, and the pause.
+const ORDER = ['warmup', 'pretest', 'reading', 'test', 'exercise'] as const
 
 /** What the banner says when the time of a step is up. */
 const TIME_UP: Record<Exclude<Step, 'pause'>, [string, string]> = {
@@ -61,6 +64,10 @@ const TIME_UP: Record<Exclude<Step, 'pause'>, [string, string]> = {
   pretest: ['Temps écoulé.', "Pas besoin d'avoir tout deviné : passe à la lecture."],
   reading: ['Temps de lecture écoulé.', 'On passe au test.'],
   test: ['Temps écoulé.', 'Termine le test à ton rythme : il ne se saute pas.'],
+  exercise: [
+    'Temps écoulé.',
+    "Termine l'étape en cours : les étapes restantes reviendront en révision.",
+  ],
 }
 
 type Phase =
@@ -77,8 +84,9 @@ type Pretested = { question: QuestionToAsk; answered: Answered }
 
 /** Notion: a new notion in full screen, as the queue (R16). A question already
  *  succeeded to warm up (R15), the pretests, the guided reading of its pages, then the
- *  test, whose answers enter the reviews (R13); a pause of 5 minutes, after which the
- *  next notion starts (R15). Exercises come with lot 4. */
+ *  test, whose answers enter the reviews (R13); its exercises: a worked example, a
+ *  problem to complete and one to solve alone (R14); a pause of 5 minutes, after which
+ *  the next notion starts (R15). */
 export function NotionScreen() {
   const navigate = useNavigate()
   const { notionId } = useParams()
@@ -197,7 +205,9 @@ export function NotionScreen() {
       if (!study || phase.kind !== 'question') return
       setResults(leaving) // an answer still graded is shown at the end (T6)
       const index = phase.index + 1
-      if (index < questionsOf(study, phase.step).length) {
+      // Time up, the exercises left come back in the reviews: the solo problems.
+      const stopped = phase.step === 'exercise' && timeUp
+      if (index < questionsOf(study, phase.step).length && !stopped) {
         setPhase({ kind: 'question', step: phase.step, index, asked: toAsk(study, phase.step, index) })
       } else {
         await after(study, phase.step)
@@ -249,6 +259,7 @@ export function NotionScreen() {
     'pretest',
     'reading',
     'test',
+    ...(study?.exercises.length ? (['exercise'] as const) : []),
     'pause',
   ]
   const current = steps.indexOf(step)
@@ -303,13 +314,37 @@ export function NotionScreen() {
                 <h1>{phase.notion.title}</h1>
               </div>
               <p>
-                {phase.notion.summary} Prétest, lecture de 10 minutes au plus, puis test : une
-                vingtaine de minutes.
+                {phase.notion.summary} Prétest, lecture de 10 minutes au plus, test, puis
+                exercices : une demi-heure environ.
               </p>
               <AwayCheck busy={busy} onStart={() => begin(phase.notion)} />
             </>
           )}
-          {phase.kind === 'question' && study && (
+          {phase.kind === 'question' && study && phase.step === 'exercise' && (
+            <ExerciseCard
+              key={phase.asked.shownAt}
+              asked={phase.asked}
+              answered={phase.answered}
+              tabs={study.exercises}
+              sessionId={study.session_id}
+              busy={busy}
+              nextLabel={nextLabel(study, phase.step, phase.index, timeUp)}
+              onAnswer={answer}
+              onGraded={(grading) => setResults((done) => withGrading(done, grading))}
+              onClaimed={(answerId, claimId) =>
+                setResults((done) => withClaim(done, answerId, claimId))
+              }
+              onNext={goOn}
+              onShowCourse={() =>
+                setCourse({
+                  resourceId: phase.asked.question.resource_id,
+                  page: phase.asked.question.first_page,
+                  back: "Revenir à l'exercice",
+                })
+              }
+            />
+          )}
+          {phase.kind === 'question' && study && phase.step !== 'exercise' && (
             <>
               <QuestionCard
                 key={phase.asked.shownAt}
@@ -323,7 +358,7 @@ export function NotionScreen() {
                 }
                 sessionId={study.session_id}
                 busy={busy}
-                nextLabel={nextLabel(study, phase.step, phase.index)}
+                nextLabel={nextLabel(study, phase.step, phase.index, timeUp)}
                 onAnswer={answer}
                 onGraded={(grading) => setResults((done) => withGrading(done, grading))}
                 onClaimed={(answerId, claimId) =>
@@ -428,26 +463,35 @@ export function NotionScreen() {
 
 function questionsOf(started: NotionSession, step: AskingStep): QuestionToAsk[] {
   if (step === 'warmup') return started.warmup ? [started.warmup] : []
-  return step === 'pretest' ? started.pretests : started.tests
+  if (step === 'pretest') return started.pretests
+  return step === 'test' ? started.tests : started.exercises
 }
 
 function toAsk(started: NotionSession, step: AskingStep, index: number): Asked {
   const questions = questionsOf(started, step)
-  const label =
-    step === 'warmup'
-      ? 'Échauffement · une question déjà réussie'
-      : step === 'pretest'
-        ? `Prétest ${index + 1} sur ${questions.length} · avant de lire`
-        : `Test ${index + 1} sur ${questions.length} · ${started.notion.title}`
+  const label = {
+    warmup: 'Échauffement · une question déjà réussie',
+    pretest: `Prétest ${index + 1} sur ${questions.length} · avant de lire`,
+    test: `Test ${index + 1} sur ${questions.length} · ${started.notion.title}`,
+    exercise: `Exercice ${index + 1} sur ${questions.length} · ${started.notion.title}`,
+  }[step]
   return { question: questions[index], label, shownAt: Date.now() }
 }
 
-/** The button after a question: the next one, or what follows its step. */
-function nextLabel(started: NotionSession, step: AskingStep, index: number): string {
-  if (index + 1 < questionsOf(started, step).length) return 'Question suivante'
+/** The button after a question: the next one, or what follows its step. Once the time
+ *  of the exercises is up, the one in progress is the last (mockup). */
+function nextLabel(
+  started: NotionSession,
+  step: AskingStep,
+  index: number,
+  timeUp: boolean,
+): string {
+  const last = index + 1 >= questionsOf(started, step).length
+  if (step === 'exercise') return last || timeUp ? 'Passer à la pause' : 'Étape suivante'
+  if (!last) return 'Question suivante'
   if (step === 'warmup') return 'Passer au prétest'
   if (step === 'pretest') return 'Commencer la lecture'
-  return 'Terminer la notion'
+  return started.exercises.length > 0 ? "Passer à l'exercice" : 'Terminer la notion'
 }
 
 /** A step before the current one is done; those after it are to come. */

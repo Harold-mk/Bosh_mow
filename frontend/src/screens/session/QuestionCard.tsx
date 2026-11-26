@@ -31,7 +31,8 @@ export type Given = {
 export type Answered = Given & { correction?: Correction; grading?: GradingState }
 
 /** Validate an answer: graded at once by the code (T5), or, for an open answer already
- *  sent to Claude, given its confidence (T6), its grading perhaps still on its way. */
+ *  sent to Claude, given its confidence (T6), its grading perhaps still on its way. A
+ *  written exercise asks no confidence: its grading is read as it stands (T3). */
 export async function validated(
   sessionId: number,
   asked: Asked,
@@ -43,6 +44,7 @@ export async function validated(
     const grading = await giveConfidence(given.gradingId, { confidence, seconds })
     return { ...given, grading }
   }
+  if (given.gradingId !== null) return { ...given, grading: await getGrading(given.gradingId) }
   const correction = await giveAnswer(sessionId, {
     question_id: asked.question.id,
     chosen_option: given.chosen,
@@ -76,6 +78,91 @@ const LEVELS: { confidence: Confidence; name: string; dots: number }[] = [
 ]
 const WAIT_SECONDS = 15 // T6: then the session goes on, and the grading comes at the end
 const READ_EVERY_MS = 700 // how often a grading on its way is read
+
+/** The grading by Claude of an answer validated, read until it ends (T6): late after 15
+ *  seconds of waiting since it was sent, when the session goes on. */
+export function useGrading(
+  answered: Answered | undefined,
+  sentAt: number | undefined,
+  onGraded?: (grading: GradingState) => void,
+) {
+  const [read, setRead] = useState<GradingState>() // the grading, read since validated
+  const [now, setNow] = useState(() => Date.now())
+  const grading = read ?? answered?.grading
+  const waiting = grading?.status === 'pending'
+  const late = waiting && sentAt !== undefined && now - sentAt >= WAIT_SECONDS * 1000
+
+  const graded = useEffectEvent((state: GradingState) => {
+    setRead(state)
+    onGraded?.(state)
+  })
+  const gradingId = waiting ? grading?.id : undefined
+  useEffect(() => {
+    if (gradingId === undefined) return
+    const timer = setInterval(() => {
+      setNow(Date.now())
+      getGrading(gradingId).then(
+        (state) => {
+          if (state.status !== 'pending') graded(state)
+        },
+        () => {}, // read again at the next turn
+      )
+    }, READ_EVERY_MS)
+    return () => clearInterval(timer)
+  }, [gradingId])
+  return { grading, waiting, late, canGoOn: !waiting || late }
+}
+
+/** Je pense avoir juste (T5): a value or a short answer that the code found wrong goes
+ *  to Claude in the background, and the session goes on. */
+export function useClaim(
+  question: QuestionToAsk,
+  answered: Answered | undefined,
+  onClaimed?: (answerId: number, claimId: number) => void,
+) {
+  const [claimed, setClaimed] = useState(false)
+  const [claiming, setClaiming] = useState(false)
+  const [problem, setProblem] = useState<string>()
+  const correction = answered?.correction
+  const claimable =
+    (question.format === 'value' || question.format === 'short') &&
+    correction !== undefined &&
+    !correction.correct &&
+    answered?.text !== null &&
+    !claimed
+
+  async function claim() {
+    if (!correction) return
+    setClaiming(true)
+    setProblem(undefined)
+    try {
+      const { id } = await claimAnswer(correction.answer_id)
+      setClaimed(true)
+      onClaimed?.(correction.answer_id, id)
+    } catch (reason) {
+      setProblem(messageOf(reason))
+    } finally {
+      setClaiming(false)
+    }
+  }
+
+  return { claimable, claimed, claiming, problem, claim }
+}
+
+/** What follows "Je pense avoir juste": the message of the mockup, or why it failed. */
+export function ClaimNote({ claimed, problem }: { claimed: boolean; problem?: string }) {
+  return (
+    <>
+      {claimed && (
+        <p className="hint claim-sent" role="status">
+          Envoyé à Claude. S'il te donne raison, la question sera reprogrammée comme juste et
+          ta formulation ajoutée aux réponses acceptées.
+        </p>
+      )}
+      {problem && <Notice>{problem}</Notice>}
+    </>
+  )
+}
 
 /** Under the statement: the format of the question and how it is corrected. */
 function noteOf(question: QuestionToAsk): string {
@@ -114,18 +201,12 @@ export function QuestionCard({
   const [sent, setSent] = useState<{ id: number; at: number }>() // to Claude (T6)
   const [sending, setSending] = useState(false)
   const [problem, setProblem] = useState<string>()
-  const [read, setRead] = useState<GradingState>() // the grading, read since validated
-  const [now, setNow] = useState(() => Date.now())
   const { question } = asked
   const open = question.format === 'open'
   const written = question.format !== 'mcq' // a field: a value, a short or an open answer
   const given = written ? text.trim() !== '' : chosen !== undefined
   const ready = given && confidence !== undefined && !sending
-
-  const grading = read ?? answered?.grading
-  const waiting = grading?.status === 'pending'
-  const late = waiting && sent !== undefined && now - sent.at >= WAIT_SECONDS * 1000
-  const canGoOn = !waiting || late
+  const { grading, late, canGoOn } = useGrading(answered, sent?.at, onGraded)
 
   /** Send an open answer to Claude at once; its grading, or nothing if it failed. */
   async function send(): Promise<number | undefined> {
@@ -186,26 +267,6 @@ export function QuestionCard({
     document.addEventListener('keydown', listener)
     return () => document.removeEventListener('keydown', listener)
   }, [])
-
-  // An open answer validated while Claude grades it: its grading is read until it ends.
-  const graded = useEffectEvent((state: GradingState) => {
-    setRead(state)
-    onGraded?.(state)
-  })
-  const gradingId = waiting ? grading?.id : undefined
-  useEffect(() => {
-    if (gradingId === undefined) return
-    const timer = setInterval(() => {
-      setNow(Date.now())
-      getGrading(gradingId).then(
-        (state) => {
-          if (state.status !== 'pending') graded(state)
-        },
-        () => {}, // read again at the next turn
-      )
-    }, READ_EVERY_MS)
-    return () => clearInterval(timer)
-  }, [gradingId])
 
   const verdict = answered?.correction
     ? answered.correction.correct
@@ -421,30 +482,11 @@ function Corrected({
   onShowCourse,
 }: CorrectedProps) {
   const { chosen, text, correction } = answered
-  const [claimed, setClaimed] = useState(false)
-  const [claiming, setClaiming] = useState(false)
-  const [problem, setProblem] = useState<string>()
-  const claimable =
-    (question.format === 'value' || question.format === 'short') &&
-    correction !== undefined &&
-    !correction.correct &&
-    text !== null
-
-  /** Je pense avoir juste: Claude judges the answer again, and the session goes on. */
-  async function claim() {
-    if (!correction) return
-    setClaiming(true)
-    setProblem(undefined)
-    try {
-      const { id } = await claimAnswer(correction.answer_id)
-      setClaimed(true)
-      onClaimed?.(correction.answer_id, id)
-    } catch (reason) {
-      setProblem(messageOf(reason))
-    } finally {
-      setClaiming(false)
-    }
-  }
+  const { claimable, claimed, claiming, problem, claim } = useClaim(
+    question,
+    answered,
+    onClaimed,
+  )
 
   if (grading?.status === 'pending' && !late) {
     return (
@@ -489,13 +531,7 @@ function Corrected({
           {correction.explanation && <span>{correction.explanation}</span>}
         </div>
       )}
-      {claimed && (
-        <p className="hint claim-sent" role="status">
-          Envoyé à Claude. S'il te donne raison, la question sera reprogrammée comme juste et
-          ta formulation ajoutée aux réponses acceptées.
-        </p>
-      )}
-      {problem && <Notice>{problem}</Notice>}
+      <ClaimNote claimed={claimed} problem={problem} />
       <div className="actions">
         <button type="button" className="button primary" disabled={busy} onClick={onNext}>
           {nextLabel}
@@ -505,7 +541,7 @@ function Corrected({
             Voir le cours
           </button>
         )}
-        {claimable && !claimed && (
+        {claimable && (
           <button
             type="button"
             className="button ghost"
@@ -563,6 +599,24 @@ function Options({
 /** What Claude says of an open answer (T6): each criterion met or not, with its
  *  sentence, the comment, then the model answer. */
 function ClaudeGrading({ grading }: { grading: GradingState }) {
+  const by = grading.provisional ? 'le modèle local' : 'Claude'
+  return (
+    <>
+      <GradingNotes grading={grading} />
+      {grading.status === 'done' && (
+        <CriteriaChecked grading={grading} title={`Critères vérifiés par ${by}`} />
+      )}
+      <div className="correction">
+        <span className="label">Correction</span>
+        <span lang="en">{grading.expected_answer}</span>
+      </div>
+    </>
+  )
+}
+
+/** Where a grading by Claude stands when it is not plain: still on its way after 15 s,
+ *  failed, or provisional, by the local model (T6). */
+export function GradingNotes({ grading }: { grading: GradingState }) {
   return (
     <>
       {grading.status === 'pending' && (
@@ -583,34 +637,42 @@ function ClaudeGrading({ grading }: { grading: GradingState }) {
           à son retour, et ta réponse sera recorrigée s'il n'est pas d'accord.
         </p>
       )}
-      {grading.status === 'done' && (
-        <div className="criteria">
-          <span className="label">
-            Critères vérifiés par {grading.provisional ? 'le modèle local' : 'Claude'}
-          </span>
-          <ul>
-            {grading.criteria.map((result, index) => (
-              <li key={index} className={result.met ? 'met' : 'missed'}>
-                <span className="criterion-mark" aria-hidden="true">
-                  <Icon name={result.met ? 'check' : 'close'} size={12} />
-                </span>
-                <span className="criterion-body">
-                  <span className="visually-hidden">
-                    {result.met ? 'Rempli : ' : 'Non rempli : '}
-                  </span>
-                  <span lang="en">{result.criterion}</span>
-                  <span className="criterion-comment">{result.comment}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-          {grading.comment && <p className="claude-comment">{grading.comment}</p>}
-        </div>
-      )}
-      <div className="correction">
-        <span className="label">Correction</span>
-        <span lang="en">{grading.expected_answer}</span>
-      </div>
     </>
+  )
+}
+
+/** The criteria of a grading, met or not, each with Claude's sentence, then its
+ *  comment; `summary` above them, such as the points of an exercise. */
+export function CriteriaChecked({
+  grading,
+  title,
+  summary,
+}: {
+  grading: GradingState
+  title: string
+  summary?: string
+}) {
+  return (
+    <div className="criteria">
+      <span className="label">{title}</span>
+      {summary && <span className="criteria-summary">{summary}</span>}
+      <ul>
+        {grading.criteria.map((result, index) => (
+          <li key={index} className={result.met ? 'met' : 'missed'}>
+            <span className="criterion-mark" aria-hidden="true">
+              <Icon name={result.met ? 'check' : 'close'} size={12} />
+            </span>
+            <span className="criterion-body">
+              <span className="visually-hidden">
+                {result.met ? 'Rempli : ' : 'Non rempli : '}
+              </span>
+              <span lang="en">{result.criterion}</span>
+              <span className="criterion-comment">{result.comment}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {grading.comment && <p className="claude-comment">{grading.comment}</p>}
+    </div>
   )
 }
