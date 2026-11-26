@@ -8,10 +8,10 @@ SQLite), React + TypeScript and pywebview. Spaced repetition uses
 [FSRS](https://github.com/open-spaced-repetition/py-fsrs); the AI features use Claude
 (through Claude Code) and a local model with Ollama.
 
-> **Status:** early development. The first three parts are ready: setting up a subject from
+> **Status:** early development. The first four parts are ready: setting up a subject from
 > its files, studying it with questions written by Claude and reviewed with spaced
-> repetition, and grading every kind of answer, by the code or by Claude. Exercises and
-> exams come next.
+> repetition, grading every kind of answer, by the code or by Claude, and practising with
+> exercises solved step by step. Exams come next.
 
 ## What it does today
 
@@ -50,8 +50,8 @@ SQLite), React + TypeScript and pywebview. Spaced repetition uses
 - **A new notion:** after the review, the next notion of the subject whose exam is closest:
   a warm-up question on a notion already learned, two pretest questions, a guided reading
   of its pages (the text is hidden after 10 minutes: you look for the answers from memory),
-  a test of its five review questions, the "why?" one last, then a 5-minute break before
-  the next notion.
+  a test of its five review questions, the "why?" one last, its exercises, then a 5-minute
+  break before the next notion.
 - **Focus:** a "Ne pas déranger" check and full screen before each session, a parking for
   passing thoughts (P key) sorted at the end, and "J'ai décroché" when your mind wanders.
 - **Home:** the session of the day, the questions due today and your successful days, the
@@ -83,8 +83,24 @@ SQLite), React + TypeScript and pywebview. Spaced repetition uses
 - **End of session:** the questions to review, the mistakes made while sure first, and the
   gradings that came after their question was left.
 
-Coming next: exercises, exams, statistics, planning, translation and an assistant in the
-reader.
+### Exercises
+
+- **Written by Claude:** after the questions of a notion, Claude writes its exercises in
+  the background: a worked example, a problem to complete and three problems to solve
+  alone, each with a step-by-step solution and points for each step. A notion with
+  nothing to practise gets none, with the reason. The chapter page lists them, with
+  "Signaler" and "Réessayer".
+- **In a new notion:** after the test, an 8-minute "Exercice" step: you read the worked
+  example, finish the problem to complete, then solve one problem alone. Only the result
+  is answered, without confidence. A value is graded by the code; a reasoning or a piece
+  of code is graded by Claude, step by step against the solution (code is read, never
+  run). It is right with 80 % of the points and the last step right; otherwise the app
+  shows the step where you dropped off. The whole solution follows each answer.
+- **In the reviews:** the three problems to solve alone enter spaced repetition, and each
+  counts 3 minutes of the daily 15. Until you solve two of a notion in a row, "Revoir
+  l'exemple résolu" shows its worked example again.
+
+Coming next: exams, statistics, planning, translation and an assistant in the reader.
 
 ## How it works
 
@@ -97,7 +113,7 @@ reader.
   AI tasks run in the background, one at a time, and wait while Claude is unavailable. A
   call that runs too long is tried once more, then its task is reported as failed.
 - A chapter is prepared in short calls: its notions first, then, once you validate them,
-  the questions of each notion, one call per notion.
+  the questions of each notion and then its exercises, one call each.
 - An open answer is graded in its own thread as soon as it is sent, never behind a
   background task. When Claude cannot answer, the local model grades it through the local
   API of Ollama, with the same prompt and the same checks.
