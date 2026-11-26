@@ -70,6 +70,39 @@ class T2Answer(BaseModel):
     questions: list[T2Question]
 
 
+class T3Step(BaseModel):
+    """A step of the solution of an exercise, with its line of the rubric."""
+
+    text: str  # in English: one action and its result
+    points: int  # its line of the rubric
+    given: bool  # shown to the student: a worked example, the start of a completion
+
+
+class T3Exercise(BaseModel):
+    """An exercise of a notion (R14): an example worked step by step, a problem to
+    complete, or a problem to solve alone. Its result is a value or a written answer,
+    a reasoning or code."""
+
+    kind: Literal["worked", "completion", "solo"]
+    type: Literal["concept", "calculation", "code"]
+    statement: str  # in English: one problem with all its data
+    steps: list[T3Step]  # the whole solution, the result last
+    answer_format: Literal["value", "open"]
+    value: float | None = None  # a value: the result
+    tolerance: float | None = None  # a value: relative, 0.01 for 1 %
+    expected_answer: str | None = None  # a written result: as the student writes it
+    first_page: int
+    last_page: int
+
+
+class T3Answer(BaseModel):
+    """T3: the exercises of one notion, or none for a purely theoretical one."""
+
+    topic: str  # what the exercises practise, in English
+    none_reason: str | None  # why the notion has no exercise; null when it has some
+    exercises: list[T3Exercise]
+
+
 class T1Pass2Notion(BaseModel):
     """A notion: one idea studied in 10 minutes at most, on pages of one file (R13)."""
 

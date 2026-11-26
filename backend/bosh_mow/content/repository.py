@@ -16,11 +16,14 @@ type QuestionType = Literal["concept", "calculation", "code"]
 # R5: restituer, expliquer, appliquer, analyser.
 type Level = Literal["recall", "explain", "apply", "analyze"]
 type Format = Literal["mcq", "value", "short", "open"]
+# T3, R14: an example solved step by step, a problem to complete, a problem alone.
+type ExerciseKind = Literal["worked", "completion", "solo"]
 
 
 @dataclass(frozen=True)
 class NewQuestion:
-    """A question on a single idea (R5), with its source pages in its notion's file."""
+    """A question on a single idea (R5), with its source pages in its notion's file;
+    or an exercise of the notion (T3), with the steps of its solution in its content."""
 
     role: Role
     type: QuestionType
@@ -30,7 +33,9 @@ class NewQuestion:
     statement: str  # in English (R5)
     first_page: int
     last_page: int
-    content: dict[str, Any]  # what its format needs (see migration 008)
+    content: dict[str, Any]  # what its format needs (see migrations 008 and 015)
+    # The kind of an exercise; None for a question.
+    exercise: ExerciseKind | None = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -103,11 +108,27 @@ def save_questions(
     """Save the questions Claude wrote on a validated notion (T2); a notion gets its
     questions once."""
     if connection.execute(
-        "SELECT 1 FROM question WHERE notion_id = ?", (notion_id,)
+        "SELECT 1 FROM question WHERE notion_id = ? AND exercise IS NULL", (notion_id,)
     ).fetchone():
         raise ValueError(f"Notion {notion_id} already has its questions.")
     with connection:
         _insert_questions(connection, notion_id, questions)
+
+
+def save_exercises(
+    connection: sqlite3.Connection, notion_id: int, exercises: Sequence[NewQuestion]
+) -> None:
+    """Save the exercises Claude wrote on a notion (T3), after its questions; a notion
+    gets its exercises once."""
+    if connection.execute(
+        "SELECT 1 FROM question WHERE notion_id = ? AND exercise IS NOT NULL",
+        (notion_id,),
+    ).fetchone():
+        raise ValueError(f"Notion {notion_id} already has its exercises.")
+    if any(exercise.exercise is None for exercise in exercises):
+        raise ValueError("An exercise needs its kind: worked, completion or solo.")
+    with connection:
+        _insert_questions(connection, notion_id, exercises)
 
 
 def get_notions(connection: sqlite3.Connection, chapter_id: int) -> list[Notion]:
@@ -122,9 +143,23 @@ def get_notions(connection: sqlite3.Connection, chapter_id: int) -> list[Notion]
 
 
 def get_questions(connection: sqlite3.Connection, notion_id: int) -> list[Question]:
-    """The questions on a notion, in order, reported ones included."""
+    """The questions on a notion, in order, reported ones included; not its
+    exercises."""
     rows = connection.execute(
-        f"{_SELECT_QUESTION} WHERE notion_id = ? ORDER BY position", (notion_id,)
+        f"{_SELECT_QUESTION} WHERE notion_id = ? AND exercise IS NULL"
+        " ORDER BY position",
+        (notion_id,),
+    ).fetchall()
+    return [_question(row) for row in rows]
+
+
+def get_exercises(connection: sqlite3.Connection, notion_id: int) -> list[Question]:
+    """The exercises of a notion, in order (T3): the worked example, the problem to
+    complete, then the solo problems; reported ones included."""
+    rows = connection.execute(
+        f"{_SELECT_QUESTION} WHERE notion_id = ? AND exercise IS NOT NULL"
+        " ORDER BY position",
+        (notion_id,),
     ).fetchall()
     return [_question(row) for row in rows]
 
@@ -180,10 +215,15 @@ def mark_studied(connection: sqlite3.Connection, notion_id: int) -> None:
 def _insert_questions(
     connection: sqlite3.Connection, notion_id: int, questions: Sequence[NewQuestion]
 ) -> None:
+    """Add questions or exercises to a notion, after those it has."""
+    (last,) = connection.execute(
+        "SELECT COALESCE(MAX(position), 0) FROM question WHERE notion_id = ?",
+        (notion_id,),
+    ).fetchone()
     connection.executemany(
         "INSERT INTO question (notion_id, position, role, type, level, format,"
-        " difficulty, statement, first_page, last_page, content)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " difficulty, statement, first_page, last_page, content, exercise)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
                 notion_id,
@@ -197,20 +237,26 @@ def _insert_questions(
                 question.first_page,
                 question.last_page,
                 json.dumps(question.content, ensure_ascii=False),
+                question.exercise,
             )
-            for position, question in enumerate(questions, start=1)
+            for position, question in enumerate(questions, start=last + 1)
         ],
     )
 
 
 _SELECT_QUESTION = (
     "SELECT role, type, level, format, difficulty, statement, first_page, last_page,"
-    " content, id, notion_id, reported_at IS NOT NULL FROM question"
+    " content, id, notion_id, reported_at IS NOT NULL, exercise FROM question"
 )
 
 
 def _question(row: tuple[Any, ...]) -> Question:
-    *fields, content, question_id, notion_id, reported = row
+    *fields, content, question_id, notion_id, reported, exercise = row
     return Question(
-        *fields, json.loads(content), question_id, notion_id, bool(reported)
+        *fields,
+        json.loads(content),
+        question_id,
+        notion_id,
+        bool(reported),
+        exercise=exercise,
     )

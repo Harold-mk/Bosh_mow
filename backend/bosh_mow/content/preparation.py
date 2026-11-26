@@ -1,8 +1,11 @@
-"""Preparing a chapter just before it is studied, in two steps.
+"""Preparing a chapter just before it is studied, in steps.
 
 1. T1 pass 2: Claude cuts the chapter into notions, in one short call.
 2. Once the student has validated the notions (R3), T2: Claude writes the 7 questions of
    each notion, in one call per notion of about half a minute.
+3. T3, a separate call per notion, so that a failure only redoes them: its exercises,
+   an example worked step by step, a problem to complete and three problems to solve
+   alone (R14), or none for a purely theoretical notion.
 
 Contract T2 asked for both in a single call per chapter. A chapter of 13 pages took
 3 minutes that way, and bigger ones would not end within the time limit. In two steps,
@@ -17,6 +20,7 @@ import sqlite3
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from itertools import combinations
 from typing import Any
 
 from bosh_mow.ai.gateway import EngineUnavailable, Gateway
@@ -26,11 +30,14 @@ from bosh_mow.ai.schemas import (
     T1Pass2Notion,
     T2Answer,
     T2Question,
+    T3Answer,
+    T3Exercise,
 )
 from bosh_mow.ai.tasks import Handler, Task, add_task, get_task, retry_now
 from bosh_mow.content.repository import (
     NewNotion,
     NewQuestion,
+    get_questions,
     save_notions,
     save_questions,
 )
@@ -39,6 +46,8 @@ from bosh_mow.subjects.repository import get_pages
 
 NOTIONS_PROMPT = "t1_pass2_v1"
 QUESTIONS_PROMPT = "t2_v2"
+EXERCISES_PROMPT = "t3_v1"
+EXERCISE_KINDS = Counter(worked=1, completion=1, solo=3)  # the exercises (T3, R14)
 NOTIONS_TASK = "t1_pass2"  # cut a chapter into notions
 QUESTIONS_TASK = "t2"  # write the questions of a notion (first version: of a chapter)
 MAX_NOTION_PAGES = 6  # a notion is read in 10 minutes at most (R13)
@@ -248,7 +257,7 @@ def prepare_questions(
         for (statement,) in connection.execute(
             "SELECT q.statement FROM question q JOIN notion n ON n.id = q.notion_id"
             " JOIN chapter c ON c.id = n.chapter_id"
-            " WHERE c.subject_id = ? ORDER BY q.id",
+            " WHERE c.subject_id = ? AND q.exercise IS NULL ORDER BY q.id",
             (subject_id,),
         )
     ]
@@ -347,6 +356,74 @@ def questions_handler(gateway: Gateway) -> Handler:
 def to_questions(answer: T2Answer) -> list[NewQuestion]:
     """The questions of an answer, as they are saved."""
     return [_to_question(question) for question in answer.questions]
+
+
+def prepare_exercises(
+    connection: sqlite3.Connection, gateway: Gateway, notion_id: int
+) -> T3Answer:
+    """Ask Claude for the exercises of a notion whose questions are written (T3), on
+    the pages of the notion, so that they do not repeat its questions.
+
+    Raises EngineUnavailable if Claude cannot answer now; InvalidAnswer if the answer
+    breaks the rules of T3 twice in a row.
+    """
+    row = connection.execute(
+        "SELECT n.title, n.summary, n.resource_id, n.first_page, n.last_page, c.id,"
+        " c.title, s.name FROM notion n JOIN chapter c ON c.id = n.chapter_id"
+        " JOIN subject s ON s.id = c.subject_id WHERE n.id = ?",
+        (notion_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Notion {notion_id} does not exist.")
+    title, summary, file_id, first, last, chapter_id, chapter, subject = row
+    data = {
+        "subject": subject,
+        "chapter": {
+            "title": chapter,
+            "objectives": _objectives(connection, chapter_id),
+        },
+        "notion": {
+            "title": title,
+            "summary": summary,
+            "first_page": first,
+            "last_page": last,
+            "pages": _pages(connection, file_id, first, last),
+        },
+        "questions": [q.statement for q in get_questions(connection, notion_id)],
+    }
+    return gateway.ask(
+        EXERCISES_PROMPT,
+        data,
+        T3Answer,
+        check=lambda answer: check_exercises(answer, first, last),
+    )
+
+
+def check_exercises(answer: T3Answer, first_page: int, last_page: int) -> list[str]:
+    """What breaks the rules of T3 in the exercises of a notion, in sentences for
+    Claude; [] if nothing. The notion has pages `first_page` to `last_page`."""
+    if not answer.exercises:
+        if (answer.none_reason or "").strip():
+            return []  # a purely theoretical notion
+        return ["Give the five exercises, or none with the reason in none_reason."]
+    counts = Counter(exercise.kind for exercise in answer.exercises)
+    problems = []
+    if counts != EXERCISE_KINDS:
+        problems.append(
+            "The notion needs 1 worked example, 1 problem to complete and 3 solo"
+            f" problems, not {counts['worked']}, {counts['completion']} and"
+            f" {counts['solo']}."
+        )
+    for number, exercise in enumerate(answer.exercises, start=1):
+        problems += _check_exercise(
+            f"Exercise {number}", exercise, first_page, last_page
+        )
+    return problems + _check_variants(answer.exercises)
+
+
+def to_exercises(answer: T3Answer) -> list[NewQuestion]:
+    """The exercises of an answer, as they are saved; [] for a notion without any."""
+    return [_to_exercise(answer.topic, exercise) for exercise in answer.exercises]
 
 
 def to_notions(answer: CombinedT2Answer) -> list[NewNotion]:
@@ -560,3 +637,97 @@ def _content(question: T2Question) -> dict[str, Any]:
         "criteria": question.criteria or [],
         "frequent_errors": question.frequent_errors or [],
     }
+
+
+def _check_exercise(
+    where: str, exercise: T3Exercise, first_page: int, last_page: int
+) -> list[str]:
+    problems: list[str] = []
+    given = [step.given for step in exercise.steps]
+    if len(exercise.steps) < 2:
+        problems.append(f"{where}: give the solution in 2 steps at least.")
+    if any(step.points < 1 for step in exercise.steps):
+        problems.append(f"{where}: each step is worth 1 point at least.")
+    if exercise.kind == "worked" and not all(given):
+        problems.append(f"{where}: a worked example gives every step.")
+    if exercise.kind == "completion" and not _completes(given):
+        problems.append(
+            f"{where}: a problem to complete gives its first steps, then leaves one to"
+            " the student at least."
+        )
+    if exercise.kind == "solo" and any(given):
+        problems.append(f"{where}: a solo problem gives no step.")
+    if exercise.answer_format == "value":
+        if exercise.value is None:
+            problems.append(f"{where}: give the value of its result.")
+        if exercise.tolerance is not None and exercise.tolerance < 0:
+            problems.append(f"{where}: its tolerance cannot be negative.")
+    elif not (exercise.expected_answer or "").strip():
+        problems.append(f"{where}: give its expected answer.")
+    if not first_page <= exercise.first_page <= exercise.last_page <= last_page:
+        problems.append(
+            f"{where}: pages {exercise.first_page} to {exercise.last_page} are not in"
+            f" the notion, pages {first_page} to {last_page}."
+        )
+    return problems
+
+
+def _completes(given: Sequence[bool]) -> bool:
+    """Whether a problem to complete gives its first steps, then the others to do, one
+    at least of each."""
+    shown = given.index(False) if False in given else len(given)
+    return 0 < shown < len(given) and not any(given[shown:])
+
+
+def _check_variants(exercises: Sequence[T3Exercise]) -> list[str]:
+    """The solo problems: three problems with their own data, not one three times."""
+    solos = [
+        (number, exercise)
+        for number, exercise in enumerate(exercises, start=1)
+        if exercise.kind == "solo"
+    ]
+    problems = []
+    for (k, one), (m, other) in combinations(solos, 2):
+        if _words(one.statement) == _words(other.statement):
+            problems.append(
+                f"Exercises {k} and {m} are the same problem: change its data or its"
+                " context."
+            )
+        elif one.answer_format == other.answer_format == "value" and (
+            one.value == other.value
+        ):
+            problems.append(
+                f"Exercises {k} and {m} have the same result: give them other data."
+            )
+    return problems
+
+
+def _words(statement: str) -> str:
+    return " ".join(statement.lower().split())
+
+
+def _to_exercise(topic: str, exercise: T3Exercise) -> NewQuestion:
+    """An exercise as it is saved: a question of its notion, with its steps (T3)."""
+    content: dict[str, Any] = {
+        "topic": topic,
+        "steps": [step.model_dump() for step in exercise.steps],
+    }
+    if exercise.answer_format == "value":
+        content["value"] = exercise.value
+        content["tolerance"] = (
+            0.01 if exercise.tolerance is None else exercise.tolerance
+        )
+    else:
+        content["expected_answer"] = exercise.expected_answer
+    return NewQuestion(
+        "review",
+        exercise.type,
+        "apply",  # an exercise applies the notion
+        exercise.answer_format,
+        2,
+        exercise.statement,
+        exercise.first_page,
+        exercise.last_page,
+        content,
+        exercise=exercise.kind,
+    )
