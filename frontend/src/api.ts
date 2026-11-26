@@ -387,7 +387,23 @@ export type QuestionSummary = {
   reported: boolean // "Signaler": out of the reviews
 }
 
-/** A validated notion, with its questions and where their writing stands (T2). */
+/** An exercise of a notion (T3, R14): an example worked step by step, a problem to
+ *  complete, or a problem to solve alone. */
+export type ExerciseSummary = {
+  id: number
+  kind: 'worked' | 'completion' | 'solo'
+  format: 'value' | 'open' // its result: a number, or a reasoning or code
+  statement: string // in English (R5)
+  reported: boolean // "Signaler": out of the reviews
+}
+
+/** Where the writing of the exercises of a notion stands (T3). */
+export type ExercisesState = TaskState & {
+  none_reason: string | null // done without exercises: why, in English
+}
+
+/** A validated notion, with its questions and exercises, and where their writing
+ *  stands (T2, T3). */
 export type Notion = {
   id: number
   number: number
@@ -399,6 +415,8 @@ export type Notion = {
   studied: boolean
   questions: QuestionSummary[] // [] while Claude writes them
   writing: TaskState | null // null if never asked, as for the first proposals
+  exercises: ExerciseSummary[] // [] while Claude writes them, or if none
+  exercise_writing: ExercisesState | null // null if never asked
 }
 
 export type ChapterView = {
@@ -440,6 +458,11 @@ export function validateNotions(
 /** Ask Claude again for the questions of a notion, after a failure. */
 export function askQuestions(notionId: number): Promise<TaskState> {
   return request('POST', `/notions/${notionId}/questions`)
+}
+
+/** Ask Claude again for the exercises of a notion, after a failure (T3). */
+export function askExercises(notionId: number): Promise<ExercisesState> {
+  return request('POST', `/notions/${notionId}/exercises`)
 }
 
 /** Signaler: take a wrong question out of the reviews. */

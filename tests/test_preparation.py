@@ -13,6 +13,7 @@ from bosh_mow.ai.gateway import EngineUnavailable, Gateway
 from bosh_mow.ai.schemas import T1Pass2Answer, T2Answer
 from bosh_mow.ai.tasks import add_task, run_next_task
 from bosh_mow.content.preparation import (
+    EXERCISES_TASK,
     NOTIONS_TASK,
     QUESTIONS_TASK,
     ChapterFile,
@@ -412,7 +413,8 @@ def test_r3_validated_notions_get_their_questions_from_claude(
     assert "How is the interquartile range computed from the quartiles?" in sent
 
     request_questions(db, variance.id)  # it has them: not asked again
-    assert not run_next_task(db, handlers, NOW)
+    waiting = db.execute("SELECT kind FROM ai_task WHERE status = 'pending'").fetchall()
+    assert waiting == [(EXERCISES_TASK,)]  # only its exercises follow (T3)
 
 
 def test_questions_that_break_the_rules_twice_can_be_asked_again(

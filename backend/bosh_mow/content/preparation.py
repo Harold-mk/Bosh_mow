@@ -38,6 +38,7 @@ from bosh_mow.content.repository import (
     NewNotion,
     NewQuestion,
     get_questions,
+    save_exercises,
     save_notions,
     save_questions,
 )
@@ -50,6 +51,7 @@ EXERCISES_PROMPT = "t3_v1"
 EXERCISE_KINDS = Counter(worked=1, completion=1, solo=3)  # the exercises (T3, R14)
 NOTIONS_TASK = "t1_pass2"  # cut a chapter into notions
 QUESTIONS_TASK = "t2"  # write the questions of a notion (first version: of a chapter)
+EXERCISES_TASK = "t3"  # write the exercises of a notion, once its questions are saved
 MAX_NOTION_PAGES = 6  # a notion is read in 10 minutes at most (R13)
 TOO_CLOSE = 0.8  # two statements sharing this much of their words repeat each other
 EXPECTED = {  # the questions of each notion (contract T2)
@@ -87,6 +89,15 @@ class QuestionsState:
 
     status: str  # pending, running, done or failed
     error: str | None
+
+
+@dataclass(frozen=True)
+class ExercisesState:
+    """Where the writing of the exercises of a notion stands (T3)."""
+
+    status: str  # pending, running, done or failed
+    error: str | None
+    none_reason: str | None  # done without exercises: why there is nothing to practise
 
 
 # Step 1: the notions of a chapter (T1 pass 2)
@@ -216,7 +227,9 @@ def validate_notions(
     for notion_id, notion in zip(
         save_notions(connection, chapter_id, notions), notions, strict=True
     ):
-        if not notion.questions:
+        if notion.questions:  # written with the notions: the first version
+            request_exercises(connection, notion_id)
+        else:
             request_questions(connection, notion_id)
 
 
@@ -348,6 +361,7 @@ def questions_handler(gateway: Gateway) -> Handler:
     def run(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
         answer = prepare_questions(connection, gateway, data["notion_id"])
         save_questions(connection, data["notion_id"], to_questions(answer))
+        request_exercises(connection, data["notion_id"])  # then its exercises (T3)
         return answer.model_dump()
 
     return run
@@ -424,6 +438,67 @@ def check_exercises(answer: T3Answer, first_page: int, last_page: int) -> list[s
 def to_exercises(answer: T3Answer) -> list[NewQuestion]:
     """The exercises of an answer, as they are saved; [] for a notion without any."""
     return [_to_exercise(answer.topic, exercise) for exercise in answer.exercises]
+
+
+def request_exercises(connection: sqlite3.Connection, notion_id: int) -> None:
+    """Ask for the exercises of a notion in the background, unless it has them, or
+    Claude found nothing to practise on it; a request that waits for Claude is tried
+    again at once, and one that failed is asked again."""
+    row = connection.execute(
+        "SELECT c.subject_id, EXISTS (SELECT 1 FROM question q"
+        " WHERE q.notion_id = n.id AND q.exercise IS NOT NULL)"
+        " FROM notion n JOIN chapter c ON c.id = n.chapter_id WHERE n.id = ?",
+        (notion_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Notion {notion_id} does not exist.")
+    subject_id, written = row
+    if written:
+        return
+    task = _latest_task(connection, EXERCISES_TASK, "notion_id", notion_id)
+    if task is not None and task.status == "pending":
+        retry_now(connection, task.id)
+    elif task is None or task.status == "failed":
+        add_task(connection, EXERCISES_TASK, {"notion_id": notion_id}, subject_id)
+
+
+def request_missing_exercises(connection: sqlite3.Connection) -> None:
+    """Ask for the exercises of the notions prepared before T3 existed, those not
+    studied yet: their exercise step is to come. Those studied get none."""
+    rows = connection.execute(
+        "SELECT n.id FROM notion n JOIN chapter c ON c.id = n.chapter_id"
+        " WHERE n.studied_at IS NULL"
+        " AND EXISTS (SELECT 1 FROM question q WHERE q.notion_id = n.id)"
+        " AND NOT EXISTS (SELECT 1 FROM ai_task t WHERE t.kind = ?"
+        " AND json_extract(t.input, '$.notion_id') = n.id)"
+        " ORDER BY c.subject_id, c.number, n.number",
+        (EXERCISES_TASK,),
+    ).fetchall()
+    for (notion_id,) in rows:
+        request_exercises(connection, notion_id)
+
+
+def exercises_state(
+    connection: sqlite3.Connection, notion_id: int
+) -> ExercisesState | None:
+    """Where the writing of the exercises of a notion stands; None if never asked."""
+    task = _latest_task(connection, EXERCISES_TASK, "notion_id", notion_id)
+    if task is None:
+        return None
+    none_reason = (task.result or {}).get("none_reason")
+    return ExercisesState(task.status, task.error, none_reason)
+
+
+def exercises_handler(gateway: Gateway) -> Handler:
+    """The background task EXERCISES_TASK: the exercises of its notion, saved as soon
+    as they keep the rules of T3."""
+
+    def run(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
+        answer = prepare_exercises(connection, gateway, data["notion_id"])
+        save_exercises(connection, data["notion_id"], to_exercises(answer))
+        return answer.model_dump()
+
+    return run
 
 
 def to_notions(answer: CombinedT2Answer) -> list[NewNotion]:

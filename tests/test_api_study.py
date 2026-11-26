@@ -10,11 +10,13 @@ import pymupdf
 import pytest
 from fake_ai import FakeEngine
 from fastapi.testclient import TestClient
+from test_exercise_preparation import answer as t3_answer
 from test_gradings import grader
 from test_preparation import make_chapters, notions, questions
 from test_sessions import make_due, make_subject, question_of
 
 from bosh_mow.ai.gateway import Gateway
+from bosh_mow.ai.schemas import T3Answer
 from bosh_mow.ai.tasks import run_next_task
 from bosh_mow.api import create_app
 from bosh_mow.content.preparation import (
@@ -22,7 +24,9 @@ from bosh_mow.content.preparation import (
     QUESTIONS_TASK,
     notions_handler,
     questions_handler,
+    to_exercises,
 )
+from bosh_mow.content.repository import save_exercises
 from bosh_mow.paths import DataFolder
 
 
@@ -102,6 +106,31 @@ def test_a_wrong_question_can_be_reported(
     (notion,) = client.get("/api/subjects/1/chapters/1").json()["notions"]
     reported = [q["id"] for q in notion["questions"] if q["reported"]]
     assert reported == [reviews[0]]
+
+
+def test_the_exercises_of_a_chapter_through_the_api(
+    client: TestClient, db: sqlite3.Connection
+) -> None:
+    notion_id, _ = make_subject(db)
+
+    asked = client.post(f"/api/notions/{notion_id}/exercises")
+    (waiting,) = client.get("/api/subjects/1/chapters/1").json()["notions"]
+    save_exercises(db, notion_id, to_exercises(T3Answer.model_validate(t3_answer())))
+    (written,) = client.get("/api/subjects/1/chapters/1").json()["notions"]
+
+    assert asked.status_code == 202
+    assert (waiting["exercises"], waiting["exercise_writing"]["status"]) == (
+        [],
+        "pending",
+    )
+    assert [e["kind"] for e in written["exercises"]] == [
+        "worked",
+        "completion",
+        "solo",
+        "solo",
+        "solo",
+    ]
+    assert client.post(f"/api/notions/{notion_id}/exercises").status_code == 409
 
 
 def test_the_daily_queue_through_the_api(

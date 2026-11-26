@@ -18,15 +18,23 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from bosh_mow import __version__
 from bosh_mow.content.preparation import (
+    ExercisesState,
     PreparationState,
     QuestionsState,
+    exercises_state,
     preparation_state,
     questions_state,
+    request_exercises,
     request_preparation,
     request_questions,
     validate_notions,
 )
-from bosh_mow.content.repository import get_notions, get_questions, report_question
+from bosh_mow.content.repository import (
+    get_exercises,
+    get_notions,
+    get_questions,
+    report_question,
+)
 from bosh_mow.db.connection import connect
 from bosh_mow.paths import DataFolder
 from bosh_mow.settings import Settings, get_settings, save_settings
@@ -270,6 +278,15 @@ class QuestionSummary:
 
 
 @dataclass(frozen=True)
+class ExerciseSummary:
+    id: int
+    kind: str  # worked, completion or solo (T3)
+    format: str  # value or open: how its result is given
+    statement: str
+    reported: bool
+
+
+@dataclass(frozen=True)
 class NotionWithQuestions:
     id: int
     number: int
@@ -281,6 +298,8 @@ class NotionWithQuestions:
     studied: bool
     questions: list[QuestionSummary]  # [] while Claude writes them
     writing: QuestionsState | None  # where their writing stands; null if never asked
+    exercises: list[ExerciseSummary]  # [] while Claude writes them, or if none
+    exercise_writing: ExercisesState | None  # null if never asked
 
 
 @dataclass(frozen=True)
@@ -377,9 +396,22 @@ def write_questions(notion_id: int, db: Database) -> QuestionsState:
     return state
 
 
+@router.post("/notions/{notion_id}/exercises", status_code=202)
+def write_exercises(notion_id: int, db: Database) -> ExercisesState:
+    """Ask Claude again for the exercises of a notion, after a failure (T3)."""
+    if not get_questions(db, notion_id):
+        raise HTTPException(409, "Les questions de cette notion ne sont pas écrites.")
+    if get_exercises(db, notion_id):
+        raise HTTPException(409, "Cette notion a déjà ses exercices.")
+    request_exercises(db, notion_id)
+    state = exercises_state(db, notion_id)
+    assert state is not None  # it was just asked for
+    return state
+
+
 @router.post("/questions/{question_id}/report", status_code=204)
 def report(question_id: int, db: Database) -> None:
-    """Signaler: take a wrong question out of the reviews."""
+    """Signaler: take a wrong question, or a wrong exercise, out of the reviews."""
     report_question(db, question_id)
 
 
@@ -679,6 +711,13 @@ def _chapter_view(db: sqlite3.Connection, chapter_id: int) -> ChapterView:
                 for q in get_questions(db, notion.id)
             ],
             questions_state(db, notion.id),
+            [
+                ExerciseSummary(
+                    e.id, e.exercise or "", e.format, e.statement, e.reported
+                )
+                for e in get_exercises(db, notion.id)
+            ],
+            exercises_state(db, notion.id),
         )
         for notion in get_notions(db, chapter_id)
     ]

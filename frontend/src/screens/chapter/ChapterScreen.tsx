@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import {
+  askExercises,
   askQuestions,
   type ChapterView,
+  type ExerciseSummary,
   getChapter,
   getSubject,
   messageOf,
@@ -11,6 +13,7 @@ import {
   reportQuestion,
   type Resource,
   type Subject,
+  type TaskState,
 } from '../../api.ts'
 import { KeyFigure } from '../../components/KeyFigure.tsx'
 import { Notice } from '../../components/Notice.tsx'
@@ -21,10 +24,12 @@ import { NotionsProposal } from './NotionsProposal.tsx'
 
 const FOLLOW_MS = 3000 // how often to look again while Claude writes questions
 const FORMATS = { mcq: 'QCM', value: 'Valeur', short: 'Réponse courte', open: 'Question ouverte' }
+const KINDS = { worked: 'Exemple résolu', completion: 'À compléter', solo: 'Problème seul' }
 
-/** Chapitre: the notions of a chapter (R3) and their questions. Before the notions are
- *  validated, Claude's proposal; after, the writing of their questions (T2) and
- *  "Signaler". Mastery, reviews and the evaluation of the chapter come with their lots. */
+/** Chapitre: the notions of a chapter (R3), their questions and their exercises. Before
+ *  the notions are validated, Claude's proposal; after, the writing of their questions
+ *  (T2) and exercises (T3), and "Signaler". Mastery, reviews and the evaluation of the
+ *  chapter come with their lots. */
 export function ChapterScreen() {
   const params = useParams()
   const subjectId = Number(params.subjectId)
@@ -43,10 +48,10 @@ export function ChapterScreen() {
     )
   }, [subjectId, number])
 
-  // While Claude writes questions, the page looks again every few seconds.
+  // While Claude writes questions or exercises, the page looks again every few seconds.
   const writing =
     chapter?.notions.some(
-      (notion) => notion.writing?.status === 'pending' || notion.writing?.status === 'running',
+      (notion) => onItsWay(notion.writing) || onItsWay(notion.exercise_writing),
     ) ?? false
   useEffect(() => {
     if (!writing) return
@@ -127,7 +132,8 @@ type Props = {
   onChange: (chapter: ChapterView) => void
 }
 
-/** The validated notions, then every question of the chapter with "Signaler". */
+/** The validated notions, then every question and exercise of the chapter with
+ *  "Signaler". */
 function ChapterNotions({ subjectId, chapter, files, onChange }: Props) {
   const [error, setError] = useState<string>()
   const { notions } = chapter
@@ -137,6 +143,12 @@ function ChapterNotions({ subjectId, chapter, files, onChange }: Props) {
     notion.questions.map((question) => ({ question, notion })),
   )
   const reported = questions.filter(({ question }) => question.reported).length
+  const exercises = notions.flatMap((notion) =>
+    notion.exercises.map((exercise) => ({ exercise, notion })),
+  )
+  const reportedExercises = exercises.filter(({ exercise }) => exercise.reported).length
+  const exercisesAsked =
+    exercises.length > 0 || notions.some((notion) => notion.exercise_writing !== null)
   const several = new Set(notions.map((notion) => notion.resource_id)).size > 1
 
   /** Do something, then show the chapter as it now is. */
@@ -164,6 +176,13 @@ function ChapterNotions({ subjectId, chapter, files, onChange }: Props) {
           value={questions.length - reported}
           context={questionsContext(notions, reported)}
         />
+        {exercisesAsked && (
+          <KeyFigure
+            label="Exercices"
+            value={exercises.length - reportedExercises}
+            context={exercisesContext(notions, reportedExercises)}
+          />
+        )}
       </div>
       {error && <Notice>{error}</Notice>}
       <section className="card chapter-section">
@@ -187,6 +206,7 @@ function ChapterNotions({ subjectId, chapter, files, onChange }: Props) {
                     )}
                     {notion.questions.length > 0 &&
                       ` · ${count(notion.questions.filter((q) => !q.reported).length, 'question')}`}
+                    {exercisesHint(notion)}
                   </span>
                   {failed && (
                     <>
@@ -197,6 +217,10 @@ function ChapterNotions({ subjectId, chapter, files, onChange }: Props) {
                       </details>
                     </>
                   )}
+                  <ExercisesTrouble
+                    notion={notion}
+                    onRetry={() => act(() => askExercises(notion.id))}
+                  />
                 </span>
                 {failed ? (
                   <button
@@ -219,8 +243,7 @@ function ChapterNotions({ subjectId, chapter, files, onChange }: Props) {
           <h2>Questions du chapitre</h2>
           <p className="hint">
             Claude les écrit sans que tu les relises une à une : signale celles qui sont
-            fausses, elles sortent des révisions. Pour l'instant, les séances posent les QCM ;
-            les autres formats arrivent avec leur correction.
+            fausses, elles sortent des révisions.
           </p>
           <ul className="question-list">
             {questions.map(({ question, notion }) => (
@@ -251,8 +274,115 @@ function ChapterNotions({ subjectId, chapter, files, onChange }: Props) {
           </ul>
         </section>
       )}
+      {exercises.length > 0 && (
+        <section className="card chapter-section">
+          <h2>Exercices du chapitre</h2>
+          <p className="hint">
+            Après le test de chaque notion : un exemple résolu à lire, un problème à compléter,
+            puis des problèmes à résoudre seul, qui reviennent ensuite en révision. Signale
+            ceux qui sont faux, ils sortent des séances.
+          </p>
+          <ul className="question-list">
+            {exercises.map(({ exercise, notion }) => (
+              <li key={exercise.id} className={exercise.reported ? 'reported' : undefined}>
+                <span className="question-text">
+                  <span lang="en">{exercise.statement}</span>
+                  <span className="chips">
+                    <span className="chip">
+                      Notion {chapter.number}.{notion.number}
+                    </span>
+                    <span className="chip">{KINDS[exercise.kind]}</span>
+                    <span className="chip">{resultOf(exercise)}</span>
+                  </span>
+                </span>
+                {exercise.reported ? (
+                  <span className="hint">Signalé</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="button ghost"
+                    title="Retirer cet exercice des séances"
+                    onClick={() => act(() => reportQuestion(exercise.id))}
+                  >
+                    Signaler
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   )
+}
+
+type TroubleProps = { notion: Notion; onRetry: () => void }
+
+/** When a notion has no exercises: their writing failed, to ask again; or Claude found
+ *  nothing to practise on it, and says why. */
+function ExercisesTrouble({ notion, onRetry }: TroubleProps) {
+  const state = notion.exercise_writing
+  if (notion.exercises.length > 0 || !state) return null
+  if (state.status === 'failed') {
+    return (
+      <>
+        <span className="exercises-failed">
+          <span className="hint">L'écriture des exercices a échoué.</span>
+          <button type="button" className="button ghost" onClick={onRetry}>
+            Réessayer
+          </button>
+        </span>
+        <details className="detail">
+          <summary>Détail</summary>
+          {state.error}
+        </details>
+      </>
+    )
+  }
+  if (state.status === 'done' && state.none_reason) {
+    return (
+      <details className="detail">
+        <summary>Pourquoi pas d'exercice ?</summary>
+        <span lang="en">{state.none_reason}</span>
+      </details>
+    )
+  }
+  return null
+}
+
+/** The exercises of a notion, after its pages and questions. */
+function exercisesHint(notion: Notion): string {
+  const state = notion.exercise_writing
+  if (notion.exercises.length > 0) {
+    return ` · ${count(notion.exercises.filter((e) => !e.reported).length, 'exercice')}`
+  }
+  if (onItsWay(state)) return " · exercices en cours d'écriture"
+  if (state?.status === 'done') return ' · sans exercice'
+  return ''
+}
+
+/** One line under the number of exercises. */
+function exercisesContext(notions: Notion[], reported: number): string {
+  const waiting = notions.filter((n) => n.exercises.length === 0 && onItsWay(n.exercise_writing))
+  const failed = notions.filter(
+    (n) => n.exercises.length === 0 && n.exercise_writing?.status === 'failed',
+  )
+  if (waiting.length > 0) return `Claude écrit encore ceux de ${count(waiting.length, 'notion')}`
+  if (failed.length > 0) return `${count(failed.length, 'notion')} sans exercices : à redemander`
+  if (reported > 0) {
+    return `${count(reported, 'exercice signalé', 'exercices signalés')}, hors des séances`
+  }
+  return 'écrits par Claude, 5 par notion'
+}
+
+/** How the result of an exercise is given. */
+function resultOf(exercise: ExerciseSummary): string {
+  return exercise.format === 'value' ? 'Valeur' : 'Réponse écrite'
+}
+
+/** Claude is writing, or waits to: the page follows. */
+function onItsWay(state: TaskState | null): boolean {
+  return state?.status === 'pending' || state?.status === 'running'
 }
 
 /** Where a notion stands: its questions being written, then to study, then studied. */

@@ -6,16 +6,31 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_preparation import fake_gateway
-from test_sessions import make_subject
+from test_preparation import OTHER_STATEMENTS, fake_gateway, questions
+from test_sessions import NOW, make_subject
 
 from bosh_mow.ai.schemas import T3Answer
+from bosh_mow.ai.tasks import run_next_task
 from bosh_mow.content.preparation import (
+    EXERCISES_TASK,
     check_exercises,
+    exercises_handler,
+    exercises_state,
     prepare_exercises,
+    questions_handler,
+    request_exercises,
+    request_missing_exercises,
     to_exercises,
 )
-from bosh_mow.content.repository import get_exercises, get_questions, save_exercises
+from bosh_mow.content.repository import (
+    NewNotion,
+    get_exercises,
+    get_questions,
+    mark_studied,
+    save_exercises,
+    save_notions,
+)
+from bosh_mow.subjects.repository import chapter_ids
 
 GIVEN = {"worked": [True] * 3, "completion": [True, True, False], "solo": [False] * 3}
 
@@ -247,6 +262,103 @@ def test_a_written_result_is_saved_with_its_expected_answer() -> None:
     assert (solo.format, solo.type) == ("open", "code")
     assert solo.content["expected_answer"] == "df.groupby('shop')['amount'].sum()"
     assert "value" not in solo.content
+
+
+# Asking for the exercises, in the background
+
+
+def t3_tasks(db: sqlite3.Connection) -> list[tuple[str, int]]:
+    """The T3 tasks: (status, notion)."""
+    return db.execute(
+        "SELECT status, json_extract(input, '$.notion_id') FROM ai_task"
+        " WHERE kind = ? ORDER BY id",
+        (EXERCISES_TASK,),
+    ).fetchall()
+
+
+def run_t3(db: sqlite3.Connection, tmp_path: Path, *answers: dict[str, Any]) -> None:
+    run_next_task(
+        db, {EXERCISES_TASK: exercises_handler(fake_gateway(tmp_path, *answers))}, NOW
+    )
+
+
+def test_t3_is_asked_once_the_questions_of_a_notion_are_saved(
+    db: sqlite3.Connection, tmp_path: Path
+) -> None:
+    make_subject(db)  # a subject, its file and two chapters
+    (_, second) = chapter_ids(db, 1)
+    (notion_id,) = save_notions(
+        db, second, [NewNotion("Quartiles", "Q1, Q3.", 1, 1, 6)]
+    )
+
+    questions_handler(fake_gateway(tmp_path, questions(OTHER_STATEMENTS)))(
+        db, {"notion_id": notion_id}
+    )
+
+    assert t3_tasks(db) == [("pending", notion_id)]
+
+
+def test_the_exercises_of_a_notion_are_saved_in_the_background(
+    db: sqlite3.Connection, tmp_path: Path
+) -> None:
+    notion_id, _ = make_subject(db)
+    request_exercises(db, notion_id)
+
+    run_t3(db, tmp_path, answer())
+
+    assert len(get_exercises(db, notion_id)) == 5
+    state = exercises_state(db, notion_id)
+    assert state is not None
+    assert (state.status, state.none_reason) == ("done", None)
+    request_exercises(db, notion_id)  # it has them: nothing more is asked
+    assert len(t3_tasks(db)) == 1
+
+
+def test_a_notion_with_nothing_to_practise_is_not_asked_again(
+    db: sqlite3.Connection, tmp_path: Path
+) -> None:
+    notion_id, _ = make_subject(db)
+    request_exercises(db, notion_id)
+
+    run_t3(db, tmp_path, answer([], "A definition: nothing to practise."))
+    request_exercises(db, notion_id)
+
+    state = exercises_state(db, notion_id)
+    assert state is not None
+    assert (state.status, state.none_reason) == (
+        "done",
+        "A definition: nothing to practise.",
+    )
+    assert get_exercises(db, notion_id) == []
+    assert len(t3_tasks(db)) == 1
+
+
+def test_exercises_that_failed_can_be_asked_again(
+    db: sqlite3.Connection, tmp_path: Path
+) -> None:
+    notion_id, _ = make_subject(db)
+    request_exercises(db, notion_id)
+    four = answer(five()[:4])  # breaks the rules twice in a row
+
+    run_t3(db, tmp_path, four, four)
+    failed = exercises_state(db, notion_id)
+    request_exercises(db, notion_id)  # Réessayer
+
+    assert failed is not None and failed.status == "failed"
+    assert [status for status, _ in t3_tasks(db)] == ["failed", "pending"]
+
+
+def test_the_notions_prepared_before_t3_get_exercises_unless_studied(
+    db: sqlite3.Connection,
+) -> None:
+    studied, _ = make_subject(db)
+    mark_studied(db, studied)  # its exercise step is over: no exercises
+    to_study, _ = make_subject(db, "Probabilités", statements=OTHER_STATEMENTS)
+
+    request_missing_exercises(db)
+    request_missing_exercises(db)  # asked once
+
+    assert t3_tasks(db) == [("pending", to_study)]
 
 
 def test_a_notion_without_exercises_saves_none() -> None:

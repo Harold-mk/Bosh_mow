@@ -70,6 +70,7 @@ def main() -> None:
     with closing(connect(folder.database)) as connection:
         apply_migrations(connection)
         gradings.resume_gradings(connection)  # those cut by the end of the app
+        preparation.request_missing_exercises(connection)  # notions prepared before T3
     # An open answer is graded at once by Claude, or by the local model when Claude
     # cannot (D6); Claude alone checks those gradings later, and judges the claims.
     claude = Gateway(ClaudeEngine(timeout_seconds=GRADING_TIMEOUT), folder.ai_log)
@@ -96,6 +97,7 @@ def main() -> None:
         descriptions.TASK: descriptions.description_handler(gateway, folder.resources),
         preparation.NOTIONS_TASK: preparation.notions_handler(gateway),
         preparation.QUESTIONS_TASK: preparation.questions_handler(gateway),
+        preparation.EXERCISES_TASK: preparation.exercises_handler(gateway),
         gradings.TASK: gradings.grading_handler(grade),
         gradings.VERIFY_TASK: gradings.verification_handler(check),
         claims.TASK: claims.claim_handler(check),

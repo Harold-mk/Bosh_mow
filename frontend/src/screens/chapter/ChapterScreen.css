@@ -135,3 +135,11 @@
   font-weight: 500;
   white-space: nowrap;
 }
+
+/* The writing of the exercises of a notion failed: the line, and a way to ask again. */
+.exercises-failed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
