@@ -7,9 +7,14 @@ from typing import Any
 import pytest
 from fake_ai import FakeEngine
 
-from bosh_mow.ai.gateway import Gateway, InvalidAnswer
+from bosh_mow.ai.gateway import EngineTimeout, EngineUnavailable, Gateway, InvalidAnswer
 from bosh_mow.ai.schemas import T6Answer
-from bosh_mow.grading.open_answers import OpenQuestion, check_grading, grade_open
+from bosh_mow.grading.open_answers import (
+    OpenQuestion,
+    check_grading,
+    grade_open,
+    grade_with_fallback,
+)
 
 WHY = OpenQuestion(
     statement="Why is the median less sensitive than the mean to extreme values?",
@@ -35,7 +40,9 @@ def problems(raw: dict[str, Any], criteria: int = 2) -> list[str]:
     return check_grading(T6Answer.model_validate(raw), criteria)
 
 
-def fake(tmp_path: Path, *answers: dict[str, Any]) -> tuple[Gateway, FakeEngine]:
+def fake(
+    tmp_path: Path, *answers: dict[str, Any] | Exception
+) -> tuple[Gateway, FakeEngine]:
     engine = FakeEngine([*answers])
     return Gateway(engine, tmp_path / "log"), engine
 
@@ -112,6 +119,56 @@ def test_t6_a_grading_wrong_twice_is_reported(tmp_path: Path) -> None:
 
     with pytest.raises(InvalidAnswer):
         grade_open(gateway, WHY, ANSWER)
+
+
+# The local model, when Claude cannot grade (D6)
+
+
+def test_t6_claude_grades_first(tmp_path: Path) -> None:
+    claude, _ = fake(tmp_path, graded(True, True))
+    local, local_engine = fake(tmp_path, graded(False, False))
+
+    grading = grade_with_fallback(claude, local)(WHY, ANSWER)
+
+    assert (grading.correct, grading.provisional) == (True, False)
+    assert local_engine.prompts == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        [EngineUnavailable("Limite du forfait atteinte.")],  # offline, Pro limit
+        [EngineTimeout("Trop long."), EngineTimeout("Trop long.")],  # tried twice
+        [graded(True), graded(True)],  # an answer that breaks the rules twice
+    ],
+)
+def test_t6_the_local_model_grades_when_claude_cannot(
+    tmp_path: Path, failure: list[dict[str, Any] | Exception]
+) -> None:
+    claude, _ = fake(tmp_path, *failure)
+    local, _ = fake(tmp_path, graded(True, False))
+
+    grading = grade_with_fallback(claude, local)(WHY, ANSWER)
+
+    assert (grading.correct, grading.provisional) == (False, True)
+
+
+def test_t6_without_claude_nor_the_local_model_the_grading_waits_for_claude(
+    tmp_path: Path,
+) -> None:
+    claude, _ = fake(tmp_path, EngineUnavailable("Hors ligne."))
+    local, _ = fake(tmp_path, EngineUnavailable("Ollama n'est pas lancé."))
+
+    with pytest.raises(EngineUnavailable, match="Hors ligne"):
+        grade_with_fallback(claude, local)(WHY, ANSWER)
+
+
+def test_t6_when_both_fail_claudes_failure_is_reported(tmp_path: Path) -> None:
+    claude, _ = fake(tmp_path, EngineTimeout("Trop long."), EngineTimeout("Trop long."))
+    local, _ = fake(tmp_path, EngineUnavailable("Ollama n'est pas lancé."))
+
+    with pytest.raises(EngineTimeout):
+        grade_with_fallback(claude, local)(WHY, ANSWER)
 
 
 def test_the_question_to_grade_comes_from_an_open_question() -> None:

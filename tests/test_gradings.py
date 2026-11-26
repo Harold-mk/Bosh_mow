@@ -4,6 +4,7 @@ saved in the history once both are there. A fake grader stands for Claude."""
 import json
 import sqlite3
 from collections.abc import Sequence
+from dataclasses import replace
 
 import pytest
 from test_sessions import NOW, TODAY, make_due, make_subject, question_of
@@ -18,6 +19,7 @@ from bosh_mow.grading.open_answers import (
 )
 from bosh_mow.study.gradings import (
     TASK,
+    VERIFY_TASK,
     Grader,
     give_confidence,
     grade_or_wait,
@@ -26,6 +28,8 @@ from bosh_mow.study.gradings import (
     resume_gradings,
     run_grading,
     start_grading,
+    verification_handler,
+    verify_grading,
 )
 from bosh_mow.study.repository import due_questions, get_card
 from bosh_mow.study.sessions import start_queue
@@ -44,6 +48,12 @@ def grader(*met: bool) -> Grader:
         return OpenGrading(results, "Bien vu.", verdict(met))
 
     return grade
+
+
+def local(*met: bool) -> Grader:
+    """A fake local model (D6): its grading is provisional."""
+    graded = grader(*met)
+    return lambda question, answer: replace(graded(question, answer), provisional=True)
 
 
 def failing(error: Exception) -> Grader:
@@ -201,6 +211,82 @@ def test_the_gradings_cut_by_the_end_of_the_app_resume(db: sqlite3.Connection) -
     assert db.execute("SELECT input FROM ai_task").fetchall() == [
         (json.dumps({"grading_id": validated}),)
     ]
+
+
+# The local model, when Claude cannot grade (D6)
+
+
+def test_d6_a_grading_of_the_local_model_counts_and_claude_checks_it_later(
+    db: sqlite3.Connection,
+) -> None:
+    session_id, why = open_answer(db)
+    grading_id = start_grading(db, session_id, why, ANSWER)
+    give_confidence(db, grading_id, "sure", 20)
+
+    run_grading(db, grading_id, local(True, True))
+
+    state = grading_state(db, grading_id)
+    assert state is not None
+    assert (state.status, state.correct, state.provisional) == ("done", True, True)
+    assert answers(db) == [(why, ANSWER, 1, "sure", 20)]  # it counts at once
+    assert db.execute("SELECT kind, input FROM ai_task").fetchall() == [
+        (VERIFY_TASK, json.dumps({"grading_id": grading_id}))
+    ]
+
+
+def test_d6_claude_confirms_a_provisional_grading(db: sqlite3.Connection) -> None:
+    session_id, why = open_answer(db)
+    grading_id = start_grading(db, session_id, why, ANSWER)
+    give_confidence(db, grading_id, "sure", 20)
+    run_grading(db, grading_id, local(True, True))
+    card = get_card(db, why)
+
+    run_next_task(db, {VERIFY_TASK: verification_handler(grader(True, True))}, NOW)
+
+    state = grading_state(db, grading_id)
+    assert state is not None
+    assert (state.correct, state.provisional, state.comment) == (
+        True,
+        False,
+        "Bien vu.",
+    )
+    assert answers(db) == [(why, ANSWER, 1, "sure", 20)]
+    assert get_card(db, why) == card  # nothing to reschedule
+
+
+def test_d6_claude_overrules_a_provisional_grading_and_the_question_comes_back(
+    db: sqlite3.Connection,
+) -> None:
+    session_id, why = open_answer(db)
+    grading_id = start_grading(db, session_id, why, ANSWER)
+    give_confidence(db, grading_id, "hesitant", 20)
+    run_grading(db, grading_id, local(True, True))
+    right = get_card(db, why)
+
+    verify_grading(db, grading_id, grader(True, False))
+
+    state = grading_state(db, grading_id)
+    assert state is not None
+    assert (state.correct, state.provisional) == (False, False)
+    assert answers(db) == [(why, ANSWER, 0, "hesitant", 20)]  # the history follows
+    wrong = get_card(db, why)
+    assert right is not None and wrong is not None
+    assert wrong.due < right.due  # rescheduled as a mistake: it comes back sooner
+    verify_grading(db, grading_id, grader(True, True))  # checked once only
+    assert answers(db) == [(why, ANSWER, 0, "hesitant", 20)]
+
+
+def test_d6_a_grading_checked_before_the_confidence_counts_as_claude_says(
+    db: sqlite3.Connection,
+) -> None:
+    session_id, why = open_answer(db)
+    grading_id = start_grading(db, session_id, why, ANSWER)
+    run_grading(db, grading_id, local(True, True))
+
+    verify_grading(db, grading_id, grader(False, False))
+    give_confidence(db, grading_id, "guess", 30)
+
+    assert answers(db) == [(why, ANSWER, 0, "guess", 30)]
 
 
 def test_only_a_written_open_answer_goes_to_claude(db: sqlite3.Connection) -> None:

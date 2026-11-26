@@ -1,14 +1,15 @@
 """T6: open answers, graded by Claude against the criteria of their question.
 
 Claude says which criteria an answer meets, with a comment for the student; the app
-concludes, so that a verdict never depends on how a language model counts.
+concludes, so that a verdict never depends on how a language model counts. When Claude
+cannot answer, the local model grades instead (D6), and its grading is provisional.
 """
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 from typing import Any, Self
 
-from bosh_mow.ai.gateway import Gateway
+from bosh_mow.ai.gateway import EngineTimeout, EngineUnavailable, Gateway, InvalidAnswer
 from bosh_mow.ai.schemas import T6Answer
 
 GRADING_PROMPT = "t6_v1"
@@ -47,6 +48,7 @@ class OpenGrading:
     criteria: list[CriterionResult]
     comment: str  # in French: what is solid, then what to add or correct first
     correct: bool  # concluded by the app: every criterion met
+    provisional: bool = False  # by the local model: Claude checks it later
 
 
 def grade_open(gateway: Gateway, question: OpenQuestion, answer: str) -> OpenGrading:
@@ -71,6 +73,26 @@ def grade_open(gateway: Gateway, question: OpenQuestion, answer: str) -> OpenGra
     return OpenGrading(
         results, reply.comment.strip(), verdict([result.met for result in results])
     )
+
+
+def grade_with_fallback(
+    claude: Gateway, local: Gateway
+) -> Callable[[OpenQuestion, str], OpenGrading]:
+    """Grade with Claude; when Claude cannot (offline, plan limit, too long, invalid
+    twice), with the local model, provisionally (D6). When neither can, Claude's
+    failure stands: an unavailable Claude makes the grading wait for it."""
+
+    def grade(question: OpenQuestion, answer: str) -> OpenGrading:
+        try:
+            return grade_open(claude, question, answer)
+        except (EngineUnavailable, EngineTimeout, InvalidAnswer) as failure:
+            try:
+                graded = grade_open(local, question, answer)
+            except (EngineUnavailable, EngineTimeout, InvalidAnswer):
+                raise failure from None
+            return replace(graded, provisional=True)
+
+    return grade
 
 
 def check_grading(reply: T6Answer, criteria: int) -> list[str]:

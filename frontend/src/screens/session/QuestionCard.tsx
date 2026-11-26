@@ -567,7 +567,7 @@ function ClaudeGrading({ grading }: { grading: GradingState }) {
     <>
       {grading.status === 'pending' && (
         <p className="grading-wait" role="status">
-          Claude met plus de temps que prévu. Sa correction s'affichera à la fin, et ta
+          La correction prend plus de temps que prévu. Elle s'affichera à la fin, et ta
           réponse comptera dès qu'elle arrive.
         </p>
       )}
@@ -577,9 +577,17 @@ function ClaudeGrading({ grading }: { grading: GradingState }) {
           reviendra.
         </p>
       )}
+      {grading.status === 'done' && grading.provisional && (
+        <p className="grading-wait" role="status">
+          Correction provisoire du modèle local : Claude n'a pas pu corriger. Il la vérifiera
+          à son retour, et ta réponse sera recorrigée s'il n'est pas d'accord.
+        </p>
+      )}
       {grading.status === 'done' && (
         <div className="criteria">
-          <span className="label">Critères vérifiés par Claude</span>
+          <span className="label">
+            Critères vérifiés par {grading.provisional ? 'le modèle local' : 'Claude'}
+          </span>
           <ul>
             {grading.criteria.map((result, index) => (
               <li key={index} className={result.met ? 'met' : 'missed'}>

@@ -3,9 +3,10 @@
 The grading starts as soon as the answer is written, in its own thread, so that it
 never waits behind a background task. The answer enters the history, and its question
 gets its next date, once the grading is done and the confidence chosen, whichever comes
-last, even after the end of the session. When Claude cannot answer now, the grading
-waits for it as a background task; a grading that cannot be done fails, and its
-question stays due.
+last, even after the end of the session. When Claude cannot answer, the local model
+grades instead (D6): its grading is provisional, and Claude checks it later in the
+background. When neither can, the grading waits for Claude as a background task; a
+grading that cannot be done fails, and its question stays due.
 """
 
 import json
@@ -30,9 +31,10 @@ from bosh_mow.study.repository import (
     record_answer,
     save_card,
 )
-from bosh_mow.study.scheduling import review
+from bosh_mow.study.scheduling import PastAnswer, replay, review
 
 TASK = "t6"  # a grading that waits for Claude, done by the background worker
+VERIFY_TASK = "t6_verify"  # Claude checks a grading of the local model
 
 type Grader = Callable[[OpenQuestion, str], OpenGrading]
 
@@ -45,6 +47,7 @@ class GradingState:
     question_id: int
     status: str  # pending, done or failed
     correct: bool | None  # once done: every criterion met
+    provisional: bool  # by the local model, until Claude checks it (D6)
     priority: bool  # a mistake made while sure: shown first (R10)
     criteria: list[CriterionResult]  # once done
     comment: str | None  # once done, in French
@@ -113,17 +116,69 @@ def run_grading(connection: sqlite3.Connection, grading_id: int, grade: Grader) 
     except Exception as error:  # an invalid answer, too long, or a bug: say why
         _finish(connection, grading_id, "status = 'failed', detail = ?", (str(error),))
         return
-    result = {
-        "criteria": [asdict(criterion) for criterion in graded.criteria],
-        "comment": graded.comment,
-    }
     _finish(
         connection,
         grading_id,
-        "status = 'done', result = ?, correct = ?",
-        (json.dumps(result, ensure_ascii=False), graded.correct),
+        "status = 'done', result = ?, correct = ?, provisional = ?",
+        (_result(graded), graded.correct, graded.provisional),
     )
+    if graded.provisional:
+        add_task(connection, VERIFY_TASK, {"grading_id": grading_id})
     _record(connection, grading_id)
+
+
+def verify_grading(
+    connection: sqlite3.Connection, grading_id: int, grade: Grader
+) -> None:
+    """Claude checks a provisional grading of the local model (D6), with `grade`, which
+    asks Claude alone. Claude's grading stands; if its verdict differs, the answer is
+    corrected in the history and its question rescheduled. An engine unavailable raises
+    EngineUnavailable, to be tried again later."""
+    row = connection.execute(
+        "SELECT question_id, answer_text, correct, answer_id FROM grading"
+        " WHERE id = ? AND status = 'done' AND provisional = 1",
+        (grading_id,),
+    ).fetchone()
+    if row is None:
+        return  # checked already
+    question_id, text, correct, answer_id = row
+    question = get_question(connection, question_id)
+    assert question is not None  # a grading goes with its question
+    graded = grade(OpenQuestion.of(question.statement, question.content), text)
+    with connection:
+        connection.execute(
+            "UPDATE grading SET result = ?, correct = ?, provisional = 0 WHERE id = ?",
+            (_result(graded), graded.correct, grading_id),
+        )
+    if answer_id is not None and bool(correct) != graded.correct:
+        with connection:
+            connection.execute(
+                "UPDATE answer SET correct = ? WHERE id = ?",
+                (graded.correct, answer_id),
+            )
+        reschedule(connection, question_id)
+
+
+def reschedule(connection: sqlite3.Connection, question_id: int) -> None:
+    """Set the next date of a review question from all its answers, when a verdict
+    changed after the fact (FSRS)."""
+    question = get_question(connection, question_id)
+    if question is None or question.role != "review":
+        return  # a pretest has no date
+    rows = connection.execute(
+        "SELECT answered_at, correct, confidence FROM answer WHERE question_id = ?"
+        " ORDER BY answered_at, id",
+        (question_id,),
+    ).fetchall()
+    card = replay(
+        question_id,
+        [
+            PastAnswer(datetime.fromisoformat(at), bool(correct), confidence)
+            for at, correct, confidence in rows
+        ],
+    )
+    if card is not None:
+        save_card(connection, card)
 
 
 def give_confidence(
@@ -151,13 +206,13 @@ def grading_state(
 ) -> GradingState | None:
     """Where the grading of an answer stands; None if there is no such grading."""
     row = connection.execute(
-        "SELECT question_id, status, result, correct, confidence, detail"
+        "SELECT question_id, status, result, correct, provisional, confidence, detail"
         " FROM grading WHERE id = ?",
         (grading_id,),
     ).fetchone()
     if row is None:
         return None
-    question_id, status, result, correct, confidence, detail = row
+    question_id, status, result, correct, provisional, confidence, detail = row
     question = get_question(connection, question_id)
     assert question is not None  # a grading goes with its question
     graded: dict[str, Any] = json.loads(result) if result else {}
@@ -167,6 +222,7 @@ def grading_state(
         question_id,
         status,
         right,
+        provisional=bool(provisional),
         priority=right is False and confidence == "sure",
         criteria=[CriterionResult(**one) for one in graded.get("criteria", [])],
         comment=graded.get("comment"),
@@ -180,6 +236,17 @@ def grading_handler(grade: Grader) -> Handler:
 
     def handle(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
         run_grading(connection, data["grading_id"], grade)
+        return {"grading_id": data["grading_id"]}
+
+    return handle
+
+
+def verification_handler(grade: Grader) -> Handler:
+    """The background worker's handler of a provisional grading that Claude checks;
+    `grade` asks Claude alone."""
+
+    def handle(connection: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
+        verify_grading(connection, data["grading_id"], grade)
         return {"grading_id": data["grading_id"]}
 
     return handle
@@ -253,6 +320,15 @@ def _record(connection: sqlite3.Connection, grading_id: int) -> None:
         connection.execute(
             "UPDATE grading SET answer_id = ? WHERE id = ?", (answer_id, grading_id)
         )
+
+
+def _result(graded: OpenGrading) -> str:
+    """What a grading says, as it is saved: each criterion met or not, the comment."""
+    result = {
+        "criteria": [asdict(criterion) for criterion in graded.criteria],
+        "comment": graded.comment,
+    }
+    return json.dumps(result, ensure_ascii=False)
 
 
 def _finish(

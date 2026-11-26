@@ -127,6 +127,7 @@ export type GradingState = {
   question_id: number
   status: 'pending' | 'done' | 'failed'
   correct: boolean | null // once done: every criterion met
+  provisional: boolean // by the local model, until Claude checks it (D6)
   priority: boolean // a mistake made while sure (R10)
   criteria: CriterionResult[] // once done
   comment: string | null // once done, in French

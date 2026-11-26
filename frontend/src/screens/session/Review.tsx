@@ -82,9 +82,11 @@ function lineOf(result: Result, grading?: GradingState, claim?: ClaimState): Lin
   }
   if (!result.late) return { ...result, note: null }
   const line = grading ? { ...result, ...outcomeOf(grading) } : result
+  // A grading of the local model is provisional until Claude checks it (D6).
+  const by = grading?.provisional ? ' (provisoire, par le modèle local)' : ''
   const note = {
-    right: `Juste : ${grading?.comment ?? ''}`.trim(),
-    wrong: `Corrigée après coup : ${grading?.comment ?? ''}`.trim(),
+    right: `Juste${by} : ${grading?.comment ?? ''}`.trim(),
+    wrong: `Corrigée après coup${by} : ${grading?.comment ?? ''}`.trim(),
     failed: "Claude n'a pas pu la corriger : elle n'est pas comptée, et la question reviendra.",
     pending: 'Claude la corrige encore : elle comptera dès que sa correction arrive.',
   }[line.outcome]

@@ -6,16 +6,13 @@ and its wording joins the accepted answers, so that it is right at once next tim
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from bosh_mow.ai.gateway import EngineUnavailable
 from bosh_mow.ai.tasks import Handler, add_task
 from bosh_mow.content.repository import accept_wording, get_question
 from bosh_mow.grading.claims import claim_question
-from bosh_mow.study.gradings import Grader
-from bosh_mow.study.repository import save_card
-from bosh_mow.study.scheduling import PastAnswer, replay
+from bosh_mow.study.gradings import Grader, reschedule
 
 TASK = "t6_claim"  # a claim judged by Claude, done by the background worker
 
@@ -82,7 +79,7 @@ def judge_claim(connection: sqlite3.Connection, claim_id: int, grade: Grader) ->
         _decide(connection, claim_id, "failed", detail=str(error))
         return
     if graded.correct:
-        _accept(connection, answer_id, question_id, text, question.role)
+        _accept(connection, answer_id, question_id, text)
     status = "accepted" if graded.correct else "refused"
     _decide(connection, claim_id, status, comment=graded.comment)
 
@@ -106,33 +103,14 @@ def claim_handler(grade: Grader) -> Handler:
 
 
 def _accept(
-    connection: sqlite3.Connection,
-    answer_id: int,
-    question_id: int,
-    text: str,
-    role: str,
+    connection: sqlite3.Connection, answer_id: int, question_id: int, text: str
 ) -> None:
     """The answer was right: so it is in the history, its wording is accepted, and its
     question gets the date that all its answers give it (FSRS)."""
     with connection:
         connection.execute("UPDATE answer SET correct = 1 WHERE id = ?", (answer_id,))
     accept_wording(connection, question_id, text)
-    if role != "review":
-        return  # a pretest has no date
-    rows = connection.execute(
-        "SELECT answered_at, correct, confidence FROM answer WHERE question_id = ?"
-        " ORDER BY answered_at, id",
-        (question_id,),
-    ).fetchall()
-    card = replay(
-        question_id,
-        [
-            PastAnswer(datetime.fromisoformat(at), bool(correct), confidence)
-            for at, correct, confidence in rows
-        ],
-    )
-    if card is not None:
-        save_card(connection, card)
+    reschedule(connection, question_id)
 
 
 def _decide(

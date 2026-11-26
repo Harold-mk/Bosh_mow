@@ -16,12 +16,13 @@ from fastapi.staticfiles import StaticFiles
 
 from bosh_mow.ai.claude import ClaudeEngine
 from bosh_mow.ai.gateway import Gateway
+from bosh_mow.ai.ollama import OllamaEngine
 from bosh_mow.ai.tasks import start_worker
 from bosh_mow.api import create_app
 from bosh_mow.content import preparation
 from bosh_mow.db.connection import connect
 from bosh_mow.db.migrate import apply_migrations
-from bosh_mow.grading.open_answers import grade_open
+from bosh_mow.grading.open_answers import grade_open, grade_with_fallback
 from bosh_mow.paths import default_data_folder
 from bosh_mow.study import claims, gradings
 from bosh_mow.subjects import descriptions, proposal
@@ -69,8 +70,12 @@ def main() -> None:
     with closing(connect(folder.database)) as connection:
         apply_migrations(connection)
         gradings.resume_gradings(connection)  # those cut by the end of the app
-    grader = Gateway(ClaudeEngine(timeout_seconds=GRADING_TIMEOUT), folder.ai_log)
-    grade = partial(grade_open, grader)
+    # An open answer is graded at once by Claude, or by the local model when Claude
+    # cannot (D6); Claude alone checks those gradings later, and judges the claims.
+    claude = Gateway(ClaudeEngine(timeout_seconds=GRADING_TIMEOUT), folder.ai_log)
+    local = Gateway(OllamaEngine(), folder.ai_log)
+    grade = grade_with_fallback(claude, local)
+    check = partial(grade_open, claude)
     api = create_app(folder, grade)
 
     if dev:
@@ -92,7 +97,8 @@ def main() -> None:
         preparation.NOTIONS_TASK: preparation.notions_handler(gateway),
         preparation.QUESTIONS_TASK: preparation.questions_handler(gateway),
         gradings.TASK: gradings.grading_handler(grade),
-        claims.TASK: claims.claim_handler(grade),
+        gradings.VERIFY_TASK: gradings.verification_handler(check),
+        claims.TASK: claims.claim_handler(check),
     }
     start_worker(folder.database, handlers, threading.Event())
     start_server(api, port)
