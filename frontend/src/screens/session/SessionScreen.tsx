@@ -18,10 +18,11 @@ import { Icon } from '../../components/Icon.tsx'
 import { Notice } from '../../components/Notice.tsx'
 import { count } from '../../format.ts'
 import { setFullscreen } from '../../fullscreen.ts'
-import { queueMinutes, SESSION_SECONDS } from '../../study.ts'
+import { SESSION_SECONDS } from '../../study.ts'
 import { ReaderOverlay } from '../reader/ReaderOverlay.tsx'
 import { AwayCheck } from './AwayCheck.tsx'
 import { Chrono, Progress } from './Chrono.tsx'
+import { ExerciseCard } from './ExerciseCard.tsx'
 import { FocusHeader } from './FocusHeader.tsx'
 import { FocusTools } from './FocusTools.tsx'
 import {
@@ -56,8 +57,9 @@ type Phase =
   | { kind: 'ended'; ending: Ending; rest: number; minimumDone: boolean }
 
 /** Session: the daily queue, the minimum session (R12), in full screen and without the
- *  sidebar (R16). Its questions come one by one with their correction (T5), under a
- *  15-minute clock; thoughts are put aside (R17) and wandering is counted (R18). */
+ *  sidebar (R16). Its questions come one by one with their correction (T5), and its
+ *  solo problems with the worked example of their notion while it is offered (R14),
+ *  under a 15-minute clock; thoughts are put aside (R17) and wandering is counted (R18). */
 export function SessionScreen() {
   const navigate = useNavigate()
   const [day, setDay] = useState<Today>()
@@ -230,7 +232,7 @@ export function SessionScreen() {
                 <div className="statement">
                   <span className="label">Avant de commencer</span>
                   <h1>
-                    {count(due, 'question')} à réviser, environ {queueMinutes(due)} minutes
+                    {count(due, 'question')} à réviser, environ {day.due_minutes} minutes
                   </h1>
                 </div>
                 <p>
@@ -242,23 +244,41 @@ export function SessionScreen() {
             ) : (
               <NothingDue notion={notion} />
             ))}
-          {session && (phase.kind === 'question' || phase.kind === 'corrected') && (
-            <QuestionCard
-              key={phase.asked.shownAt}
-              asked={phase.asked}
-              answered={phase.kind === 'corrected' ? phase.answered : undefined}
-              sessionId={session.id}
-              busy={busy}
-              nextLabel={nextLabel}
-              onAnswer={answer}
-              onGraded={(grading) => setResults((done) => withGrading(done, grading))}
-              onClaimed={(answerId, claimId) =>
-                setResults((done) => withClaim(done, answerId, claimId))
-              }
-              onNext={goOn}
-              onShowCourse={() => setCourse(phase.asked.question)}
-            />
-          )}
+          {session &&
+            (phase.kind === 'question' || phase.kind === 'corrected') &&
+            (phase.asked.question.exercise ? (
+              <ExerciseCard
+                key={phase.asked.shownAt}
+                asked={phase.asked}
+                answered={phase.kind === 'corrected' ? phase.answered : undefined}
+                sessionId={session.id}
+                busy={busy}
+                nextLabel={nextLabel}
+                onAnswer={answer}
+                onGraded={(grading) => setResults((done) => withGrading(done, grading))}
+                onClaimed={(answerId, claimId) =>
+                  setResults((done) => withClaim(done, answerId, claimId))
+                }
+                onNext={goOn}
+                onShowCourse={() => setCourse(phase.asked.question)}
+              />
+            ) : (
+              <QuestionCard
+                key={phase.asked.shownAt}
+                asked={phase.asked}
+                answered={phase.kind === 'corrected' ? phase.answered : undefined}
+                sessionId={session.id}
+                busy={busy}
+                nextLabel={nextLabel}
+                onAnswer={answer}
+                onGraded={(grading) => setResults((done) => withGrading(done, grading))}
+                onClaimed={(answerId, claimId) =>
+                  setResults((done) => withClaim(done, answerId, claimId))
+                }
+                onNext={goOn}
+                onShowCourse={() => setCourse(phase.asked.question)}
+              />
+            ))}
           {phase.kind === 'sorting' && (
             <ThoughtSorting thoughts={phase.thoughts} busy={busy} onDecide={decide} />
           )}
@@ -295,7 +315,7 @@ export function SessionScreen() {
         <ReaderOverlay
           resourceId={course.resource_id}
           page={course.first_page}
-          backLabel="Revenir à la question"
+          backLabel={course.exercise ? "Revenir à l'exercice" : 'Revenir à la question'}
           onClose={() => setCourse(undefined)}
         />
       )}

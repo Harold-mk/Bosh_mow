@@ -510,6 +510,31 @@ button.option:hover:not([aria-checked='true']) {
   line-height: 1.55;
 }
 
+/* R14: the worked example of its notion, folded above a solo problem in a review. */
+.worked-example summary {
+  width: fit-content;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.worked-example summary:hover {
+  color: var(--color-text);
+}
+
+.worked-example[open] summary {
+  margin-bottom: 10px;
+}
+
+.worked-example-statement {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .criteria-summary {
   font-size: 13px;
   font-weight: 600;

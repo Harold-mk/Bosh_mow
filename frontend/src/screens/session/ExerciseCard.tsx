@@ -36,8 +36,9 @@ type Props = {
   onShowCourse?: () => void // Voir le cours: its pages in the reader (R4)
 }
 
-/** What a kind of exercise asks, under its statement (Notion mockup). */
-function introOf(exercise: ExerciseView, value: boolean): string {
+/** What a kind of exercise asks, under its statement (Notion mockup); a solo problem
+ *  follows the other two in the step of its notion, and comes alone in a review. */
+function introOf(exercise: ExerciseView, value: boolean, inStep: boolean): string {
   if (exercise.kind === 'worked') {
     return "Lis chaque étape et vérifie que tu comprends d'où elle vient."
   }
@@ -47,13 +48,15 @@ function introOf(exercise: ExerciseView, value: boolean): string {
       count < 2 ? 'La première étape est faite.' : `Les ${count} premières étapes sont faites.`
     return `${done} ${value ? 'Termine le calcul.' : 'Écris la suite du raisonnement.'}`
   }
+  const none = inStep ? "Cette fois, aucune étape n'est donnée" : "Aucune étape n'est donnée"
   return value
-    ? "Cette fois, aucune étape n'est donnée. Fais le calcul sur papier si besoin."
-    : "Cette fois, aucune étape n'est donnée : écris ton raisonnement en entier."
+    ? `${none}. Fais le calcul sur papier si besoin.`
+    : `${none} : écris ton raisonnement en entier.`
 }
 
 /** An exercise (T3, R14): an example worked step by step, to read; a problem to
- *  complete; or a problem to solve alone. Only its result is answered, without
+ *  complete; or a problem to solve alone, which in a review offers the worked example
+ *  of its notion until two are solved in a row. Only its result is answered, without
  *  confidence: a value, graded by the code, or a reasoning or code, graded by Claude on
  *  the steps of its solution (T6). Then the whole solution shows. */
 export function ExerciseCard({
@@ -147,8 +150,17 @@ export function ExerciseCard({
       {tabs && tabs.length > 1 && <ExerciseTabs tabs={tabs} current={question.id} />}
       <div className="statement">
         <h1 lang="en">{question.statement}</h1>
-        <p className="exercise-intro">{introOf(exercise, value)}</p>
+        <p className="exercise-intro">{introOf(exercise, value, tabs !== undefined)}</p>
       </div>
+      {exercise.worked_example && !answered && (
+        <details className="worked-example">
+          <summary>Revoir l'exemple résolu</summary>
+          <p className="worked-example-statement" lang="en">
+            {exercise.worked_example.statement}
+          </p>
+          <Steps steps={exercise.worked_example.steps} />
+        </details>
+      )}
       {exercise.given.length > 0 && !answered && <Steps steps={exercise.given} />}
       {problem && <Notice>{problem}</Notice>}
       {!worked && !answered && (

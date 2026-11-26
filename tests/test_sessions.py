@@ -130,7 +130,8 @@ def make_due(
 def test_today_counts_the_queue_and_the_successful_days(db: sqlite3.Connection) -> None:
     _, reviews = make_subject(db)
     make_due(db, reviews)
-    assert today(db, TODAY, NOW).due == 3
+    before = today(db, TODAY, NOW)
+    assert (before.due, before.due_minutes) == (3, 2)  # 3 × 36 s, rounded up
 
     session_id = start_queue(db, TODAY, NOW)
     assert finish(db, session_id, completed=True, day=TODAY)

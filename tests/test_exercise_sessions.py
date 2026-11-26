@@ -31,6 +31,7 @@ from bosh_mow.study.sessions import (
     next_question,
     start_notion,
     start_queue,
+    today,
 )
 
 
@@ -211,6 +212,7 @@ def test_r14_a_solo_problem_comes_back_with_its_worked_example_until_two_are_sol
     answer(db, session.session_id, first.id, None, None, 90, NOW, answer_text="4")
     finish(db, session.session_id, completed=True, day=TODAY, now=NOW)
     later = NOW + timedelta(days=1, minutes=1)
+    day = today(db, TODAY + timedelta(days=1), later)
     queue = start_queue(db, TODAY + timedelta(days=1), later)
 
     due = due_questions(db, later)
@@ -220,6 +222,7 @@ def test_r14_a_solo_problem_comes_back_with_its_worked_example_until_two_are_sol
         (second.id, 180),
         (third.id, 180),
     }
+    assert (day.due, day.due_minutes) == (3, 9)
     # The first one comes back first: 10 minutes after its answer, as it is learned.
     assert review is not None and review.exercise is not None
     assert review.id == first.id

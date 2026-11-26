@@ -6,6 +6,7 @@ answer is graded here, without AI (T5), saved with its confidence (R6), and sets
 next date of its question (FSRS); a pretest only primes the reading and has no date.
 """
 
+import math
 import random
 import sqlite3
 from dataclasses import dataclass, field, replace
@@ -101,6 +102,7 @@ class Correction:
 @dataclass(frozen=True)
 class Today:
     due: int  # the questions of today's queue: never a backlog (R12, R27)
+    due_minutes: int  # about how long it takes: an exercise counts 3 minutes
     successful_days: int  # R26
     minimum_done: bool
     missed_yesterday: bool  # warn before a second missed day in a row (R26)
@@ -132,12 +134,17 @@ class NotionSession:
 
 
 def today(connection: sqlite3.Connection, day: date, now: datetime) -> Today:
-    """Where the day stands: the questions to review, the successful days."""
+    """Where the day stands: the questions to review and how long they take, the
+    successful days."""
     sessions = day_sessions(connection)
     done = successful_days(sessions)
     first = min((session.day for session in sessions), default=None)
+    due = due_questions(connection, now)
+    seconds = {question.question_id: question.seconds for question in due}
+    queue = daily_queue(due, now)
     return Today(
-        len(daily_queue(due_questions(connection, now), now)),
+        len(queue),
+        math.ceil(sum(seconds[question_id] for question_id in queue) / 60),
         len(done),
         day in done,
         missed_yesterday(done, first, day),

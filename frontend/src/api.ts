@@ -67,6 +67,7 @@ export type ProposalState = {
 /** Where the day stands, for the home screen and the sidebar. */
 export type Today = {
   due: number // the questions of today's queue: never a backlog (R12, R27)
+  due_minutes: number // about how long it takes: an exercise counts 3 minutes
   successful_days: number // R26
   minimum_done: boolean
   missed_yesterday: boolean // warn before a second missed day in a row
