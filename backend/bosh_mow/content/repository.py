@@ -44,6 +44,12 @@ class Question(NewQuestion):
     notion_id: int
     reported: bool  # "Signaler": out of the reviews
 
+    @property
+    def dated(self) -> bool:
+        """Whether its answers set its next date (FSRS): a review question or a solo
+        problem does; a pretest, a worked example or a problem to complete does not."""
+        return self.role == "review" and self.exercise in (None, "solo")
+
 
 @dataclass(frozen=True)
 class NewNotion:

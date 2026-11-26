@@ -1,33 +1,52 @@
 """T6: open answers, graded by Claude against the criteria of their question.
 
 Claude says which criteria an answer meets, with a comment for the student; the app
-concludes, so that a verdict never depends on how a language model counts. When Claude
-cannot answer, the local model grades instead (D6), and its grading is provisional.
+concludes, so that a verdict never depends on how a language model counts. A written
+answer to an exercise (T3) is graded the same way: the steps left to the student are
+its criteria, each worth its points. When Claude cannot answer, the local model grades
+instead (D6), and its grading is provisional.
 """
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Self
 
 from bosh_mow.ai.gateway import EngineTimeout, EngineUnavailable, Gateway, InvalidAnswer
 from bosh_mow.ai.schemas import T6Answer
+from bosh_mow.grading.exercises import exercise_verdict
 
 GRADING_PROMPT = "t6_v1"
+EXERCISE_PROMPT = "t6_exercise_v1"
 
 
 @dataclass(frozen=True)
 class OpenQuestion:
     """What grading an answer needs: the question, its model answer, the criteria that
-    a right answer meets, and the errors students often make on it."""
+    a right answer meets, and the errors students often make on it. For an exercise,
+    the criteria are the steps left to the student, with their points."""
 
     statement: str
     expected_answer: str
     criteria: list[str]
     frequent_errors: list[str]
+    points: list[int] | None = None  # an exercise: what each step to do is worth
+    solution: list[str] = field(default_factory=list)  # an exercise: all its steps
 
     @classmethod
     def of(cls, statement: str, content: dict[str, Any]) -> Self:
-        """The question to grade, from the content of an open question (T2)."""
+        """The question to grade, from the content of an open question (T2) or of an
+        exercise whose result is written (T3)."""
+        if "steps" in content:
+            steps = content["steps"]
+            to_do = [step for step in steps if not step["given"]]
+            return cls(
+                statement,
+                content["expected_answer"],
+                [step["text"] for step in to_do],
+                [],
+                points=[step["points"] for step in to_do],
+                solution=[step["text"] for step in steps],
+            )
         return cls(
             statement,
             content["expected_answer"],
@@ -53,16 +72,32 @@ class OpenGrading:
 
 def grade_open(gateway: Gateway, question: OpenQuestion, answer: str) -> OpenGrading:
     """Ask Claude which criteria of the question the answer meets (T6); the app
-    concludes."""
-    reply = gateway.ask(
-        GRADING_PROMPT,
-        {
+    concludes: every criterion for a question, 80 % of the points and the result for
+    an exercise (T3)."""
+    if question.points is None:
+        prompt = GRADING_PROMPT
+        data: dict[str, Any] = {
             "question": question.statement,
             "expected_answer": question.expected_answer,
             "criteria": question.criteria,
             "frequent_errors": question.frequent_errors,
             "answer": answer,
-        },
+        }
+    else:
+        prompt = EXERCISE_PROMPT
+        data = {
+            "exercise": question.statement,
+            "solution": question.solution,
+            "steps_to_check": [
+                {"step": step, "points": points}
+                for step, points in zip(question.criteria, question.points, strict=True)
+            ],
+            "result": question.expected_answer,
+            "answer": answer,
+        }
+    reply = gateway.ask(
+        prompt,
+        data,
         T6Answer,
         check=lambda reply: check_grading(reply, len(question.criteria)),
     )
@@ -70,9 +105,13 @@ def grade_open(gateway: Gateway, question: OpenQuestion, answer: str) -> OpenGra
         CriterionResult(criterion, result.met, result.comment.strip())
         for criterion, result in zip(question.criteria, reply.criteria, strict=True)
     ]
-    return OpenGrading(
-        results, reply.comment.strip(), verdict([result.met for result in results])
+    met = [result.met for result in results]
+    correct = (
+        verdict(met)
+        if question.points is None
+        else exercise_verdict(question.points, met)
     )
+    return OpenGrading(results, reply.comment.strip(), correct)
 
 
 def grade_with_fallback(

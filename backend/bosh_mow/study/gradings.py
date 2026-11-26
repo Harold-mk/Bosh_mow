@@ -23,6 +23,7 @@ from bosh_mow.ai.gateway import EngineUnavailable
 from bosh_mow.ai.tasks import Handler, add_task
 from bosh_mow.content.repository import get_question
 from bosh_mow.db.connection import connect
+from bosh_mow.grading.exercises import dropped_at
 from bosh_mow.grading.open_answers import CriterionResult, OpenGrading, OpenQuestion
 from bosh_mow.study.repository import (
     Confidence,
@@ -49,16 +50,26 @@ class GradingState:
     correct: bool | None  # once done: every criterion met
     provisional: bool  # by the local model, until Claude checks it (D6)
     priority: bool  # a mistake made while sure: shown first (R10)
-    criteria: list[CriterionResult]  # once done
+    criteria: list[CriterionResult]  # once done; for an exercise, its steps to do
     comment: str | None  # once done, in French
     expected_answer: str  # the model answer, shown with the correction
     detail: str | None  # why it failed
+    solution: list[str]  # an exercise: every step of its solution, to read after
+    points: int | None  # an exercise, once done: the points earned on its steps to do…
+    out_of: int | None  # … out of these
+    dropped_at: int | None  # an exercise, once done: its first step to do missed
 
 
 def start_grading(
-    connection: sqlite3.Connection, session_id: int | None, question_id: int, text: str
+    connection: sqlite3.Connection,
+    session_id: int | None,
+    question_id: int,
+    text: str,
+    seconds: int | None = None,
 ) -> int:
-    """Note an open answer as it is sent, to be graded at once; return its grading."""
+    """Note an open answer as it is sent, to be graded at once; return its grading.
+    An exercise asks no confidence: its answer is given as it is sent, with the
+    `seconds` it took; a question's answer is given with its confidence."""
     question = get_question(connection, question_id)
     if question is None:
         raise ValueError(f"Question {question_id} does not exist.")
@@ -66,11 +77,13 @@ def start_grading(
         raise ValueError(f"Question {question_id} is not an open answer.")
     if not text.strip():
         raise ValueError("Écris ta réponse, ou choisis « Je ne sais pas ».")
+    if question.exercise is not None and seconds is None:
+        raise ValueError("An exercise is sent with the time its answer took.")
     with connection:
         return connection.execute(
-            "INSERT INTO grading (question_id, session_id, answer_text)"
-            " VALUES (?, ?, ?)",
-            (question_id, session_id, text.strip()),
+            "INSERT INTO grading (question_id, session_id, answer_text, seconds)"
+            " VALUES (?, ?, ?, ?)",
+            (question_id, session_id, text.strip(), seconds),
         ).lastrowid
 
 
@@ -163,8 +176,8 @@ def reschedule(connection: sqlite3.Connection, question_id: int) -> None:
     """Set the next date of a review question from all its answers, when a verdict
     changed after the fact (FSRS)."""
     question = get_question(connection, question_id)
-    if question is None or question.role != "review":
-        return  # a pretest has no date
+    if question is None or not question.dated:
+        return  # a pretest, a worked example or a problem to complete has no date
     rows = connection.execute(
         "SELECT answered_at, correct, confidence FROM answer WHERE question_id = ?"
         " ORDER BY answered_at, id",
@@ -217,6 +230,14 @@ def grading_state(
     assert question is not None  # a grading goes with its question
     graded: dict[str, Any] = json.loads(result) if result else {}
     right = None if correct is None else bool(correct)
+    criteria = [CriterionResult(**one) for one in graded.get("criteria", [])]
+    rubric = OpenQuestion.of(question.statement, question.content).points
+    points = out_of = dropped = None
+    if rubric is not None and criteria:  # an exercise, graded (T3, T6)
+        met = [result.met for result in criteria]
+        points = sum(worth for worth, ok in zip(rubric, met, strict=True) if ok)
+        out_of = sum(rubric)
+        dropped = dropped_at(met)
     return GradingState(
         grading_id,
         question_id,
@@ -224,10 +245,14 @@ def grading_state(
         right,
         provisional=bool(provisional),
         priority=right is False and confidence == "sure",
-        criteria=[CriterionResult(**one) for one in graded.get("criteria", [])],
+        criteria=criteria,
         comment=graded.get("comment"),
         expected_answer=question.content["expected_answer"],
         detail=detail,
+        solution=[step["text"] for step in question.content.get("steps", [])],
+        points=points,
+        out_of=out_of,
+        dropped_at=dropped,
     )
 
 
@@ -253,10 +278,10 @@ def verification_handler(grade: Grader) -> Handler:
 
 
 def resume_gradings(connection: sqlite3.Connection) -> None:
-    """Queue again the gradings cut by the end of the app, once their confidence is
-    chosen: the answer they wait for was given."""
+    """Queue again the gradings cut by the end of the app, once their answer was given:
+    its time is known, with the confidence of a question or at once for an exercise."""
     rows = connection.execute(
-        "SELECT id FROM grading WHERE status = 'pending' AND confidence IS NOT NULL"
+        "SELECT id FROM grading WHERE status = 'pending' AND seconds IS NOT NULL"
     ).fetchall()
     for (grading_id,) in rows:
         _wait_for_claude(connection, grading_id)
@@ -275,12 +300,13 @@ def _wait_for_claude(connection: sqlite3.Connection, grading_id: int) -> None:
 
 def _record(connection: sqlite3.Connection, grading_id: int) -> None:
     """Save the answer in the history and set the next date of its question, once its
-    grading is done and its confidence chosen. Exactly once: the grading thread and the
+    grading is done and the answer given: its time is known, with the confidence of a
+    question, at once for an exercise. Exactly once: the grading thread and the
     confidence may both get there, and the first to claim the grading saves it."""
     with connection:
         claimed = connection.execute(
             "UPDATE grading SET recorded_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
-            " WHERE id = ? AND status = 'done' AND confidence IS NOT NULL"
+            " WHERE id = ? AND status = 'done' AND seconds IS NOT NULL"
             " AND recorded_at IS NULL",
             (grading_id,),
         ).rowcount
@@ -307,7 +333,7 @@ def _record(connection: sqlite3.Connection, grading_id: int) -> None:
         ),
     )
     question = get_question(connection, question_id)
-    if question is not None and question.role == "review":
+    if question is not None and question.dated:
         card = review(
             get_card(connection, question_id),
             question_id,

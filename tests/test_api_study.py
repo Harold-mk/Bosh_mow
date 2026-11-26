@@ -133,6 +133,34 @@ def test_the_exercises_of_a_chapter_through_the_api(
     assert client.post(f"/api/notions/{notion_id}/exercises").status_code == 409
 
 
+def test_the_exercise_step_through_the_api(
+    client: TestClient, db: sqlite3.Connection
+) -> None:
+    notion_id, _ = make_subject(db)
+    save_exercises(db, notion_id, to_exercises(T3Answer.model_validate(t3_answer())))
+
+    started = client.post(f"/api/notions/{notion_id}/session").json()
+    solo = started["exercises"][2]
+    given = {
+        "question_id": solo["id"],
+        "chosen_option": None,
+        "answer_text": "4",
+        "confidence": None,  # an exercise asks none
+        "seconds": 70,
+    }
+    correction = client.post(
+        f"/api/sessions/{started['session_id']}/answers", json=given
+    ).json()
+
+    assert [e["exercise"]["kind"] for e in started["exercises"]] == [
+        "worked",
+        "completion",
+        "solo",
+    ]
+    assert solo["exercise"]["topic"] == "Computing a sample variance"
+    assert (correction["correct"], len(correction["solution"])) == (True, 3)
+
+
 def test_the_daily_queue_through_the_api(
     client: TestClient, db: sqlite3.Connection
 ) -> None:

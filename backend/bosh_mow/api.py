@@ -440,6 +440,7 @@ class AnswerGiven:
 class OpenAnswerWritten:
     question_id: int
     answer_text: str
+    seconds: int | None = None  # an exercise: given as it is sent, without confidence
 
 
 @dataclass(frozen=True)
@@ -532,7 +533,9 @@ def send_open_answer(
     grade: Grader | None = request.app.state.grade
     if grade is None:
         raise HTTPException(503, "La correction par Claude n'est pas disponible.")
-    grading_id = start_grading(db, session_id, written.question_id, written.answer_text)
+    grading_id = start_grading(
+        db, session_id, written.question_id, written.answer_text, written.seconds
+    )
     grade_in_background(folder.database, grading_id, grade)
     return GradingStarted(grading_id)
 

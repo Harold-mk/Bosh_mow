@@ -9,11 +9,14 @@ next date of its question (FSRS); a pretest only primes the reading and has no d
 import random
 import sqlite3
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
+
+from fsrs import Card
 
 from bosh_mow.content.preparation import preparation_state, request_preparation
 from bosh_mow.content.repository import (
     Question,
+    get_exercises,
     get_notions,
     get_question,
     get_questions,
@@ -21,6 +24,7 @@ from bosh_mow.content.repository import (
 )
 from bosh_mow.grading.closed import grade_mcq, grade_short, grade_value, mcq_options
 from bosh_mow.study.days import after_absence, missed_yesterday, successful_days
+from bosh_mow.study.exercises import offers_worked_example
 from bosh_mow.study.queue import daily_queue
 from bosh_mow.study.repository import (
     Confidence,
@@ -47,6 +51,25 @@ class OptionToAsk:
 
 
 @dataclass(frozen=True)
+class WorkedExample:
+    """An example worked step by step, to read before a solo problem (R14)."""
+
+    statement: str
+    steps: list[str]
+
+
+@dataclass(frozen=True)
+class ExerciseView:
+    """What an exercise shows before its answer (T3)."""
+
+    kind: str  # worked, completion or solo
+    topic: str  # what the exercises of its notion practise
+    given: list[str]  # all the steps of a worked example, the first of a completion
+    to_do: int  # the steps left to the student
+    worked_example: WorkedExample | None  # in a review, while it is offered (R14)
+
+
+@dataclass(frozen=True)
 class QuestionToAsk:
     """A question as it is asked: without its correction, options in a random order."""
 
@@ -60,6 +83,7 @@ class QuestionToAsk:
     resource_id: int  # where its answer is (R4)
     first_page: int
     last_page: int
+    exercise: ExerciseView | None = None  # an exercise (T3), asked without confidence
 
 
 @dataclass(frozen=True)
@@ -71,6 +95,7 @@ class Correction:
     expected: str | None = None  # a value or a short answer: what was expected
     explanation: str | None = None  # a value or a short answer: how to find it
     answer_id: int | None = None  # the answer saved, which a claim refers to
+    solution: list[str] = field(default_factory=list)  # an exercise: all its steps
 
 
 @dataclass(frozen=True)
@@ -102,6 +127,8 @@ class NotionSession:
     warmup: QuestionToAsk | None  # a question already succeeded, first (R15)
     pretests: list[QuestionToAsk]  # before the reading
     tests: list[QuestionToAsk]  # after the reading, the review questions (R13)
+    # Then: its worked example, its problem to complete and a solo problem (R14).
+    exercises: list[QuestionToAsk]
 
 
 def today(connection: sqlite3.Connection, day: date, now: datetime) -> Today:
@@ -147,7 +174,7 @@ def next_question(
         chosen = next((q for q in queue if subject_of[q] != last[0]), queue[0])
     question = get_question(connection, chosen)
     assert question is not None  # it comes from the queue
-    return _to_ask(connection, question)
+    return _to_ask(connection, question, in_review=True)
 
 
 def answer(
@@ -169,13 +196,15 @@ def answer(
     mcq = question.format == "mcq"
     text = (answer_text or "").strip() or None
     given = chosen_option if mcq else text
-    if given is not None and confidence is None:
+    if given is not None and confidence is None and question.exercise is None:
         raise ValueError("Indique ta confiance avant de valider ta réponse.")
     if given is None:
         confidence = None  # "Je ne sais pas"
     correction = _grade(question, chosen_option, text)
     correction = replace(
-        correction, priority=not correction.correct and confidence == "sure"
+        correction,
+        priority=not correction.correct and confidence == "sure",
+        solution=[step["text"] for step in question.content.get("steps", [])],
     )
     answer_id = record_answer(
         connection,
@@ -189,7 +218,7 @@ def answer(
             answer_text=None if mcq else text,
         ),
     )
-    if question.role == "review":
+    if question.dated:
         card = review(
             get_card(connection, question_id),
             question_id,
@@ -246,11 +275,15 @@ def _french(number: float) -> str:
 
 
 def finish(
-    connection: sqlite3.Connection, session_id: int, completed: bool, day: date
+    connection: sqlite3.Connection,
+    session_id: int,
+    completed: bool,
+    day: date,
+    now: datetime | None = None,
 ) -> bool:
     """End a session; return whether the day is now successful (R26). A session ends
     once its thoughts are planned or dropped (R17); a notion studied to the end is
-    marked as studied (R13)."""
+    marked as studied (R13), and its solo problems not done come back the next day."""
     if undecided_thoughts(connection, session_id):
         raise ValueError(
             "Il reste des pensées à trier : planifie-les ou abandonne-les."
@@ -264,6 +297,7 @@ def finish(
     end_session(connection, session_id, completed)
     if kind == "notion" and completed and notion_id is not None:
         mark_studied(connection, notion_id)
+        _date_solo_problems(connection, notion_id, now or datetime.now(UTC))
     return day in successful_days(day_sessions(connection))
 
 
@@ -290,8 +324,8 @@ def start_notion(
     connection: sqlite3.Connection, notion_id: int, day: date
 ) -> NotionSession:
     """Start the study of a notion (R13): a question already succeeded to warm up
-    (R15), its pretests, then its test. Starting a chapter also asks for the
-    preparation of the next one (decision 10)."""
+    (R15), its pretests, its test, then its exercises (R14). Starting a chapter also
+    asks for the preparation of the next one."""
     notion = find_notion(connection, notion_id)
     if notion is None:
         raise ValueError(f"Notion {notion_id} does not exist.")
@@ -310,6 +344,7 @@ def start_notion(
         _warmup(connection, notion_id),
         [_to_ask(connection, q) for q in questions if q.role == "pretest"],
         [_to_ask(connection, q) for q in questions if q.role == "review"],
+        [_to_ask(connection, e) for e in _exercise_step(connection, notion_id)],
     )
 
 
@@ -320,7 +355,11 @@ _SELECT_NOTION = (
 )
 
 
-def _to_ask(connection: sqlite3.Connection, question: Question) -> QuestionToAsk:
+def _to_ask(
+    connection: sqlite3.Connection, question: Question, in_review: bool = False
+) -> QuestionToAsk:
+    """A question as it is asked; an exercise with what it shows, and in a review a
+    solo problem with the worked example of its notion while it is offered (R14)."""
     (subject,) = connection.execute(
         "SELECT s.name FROM notion n JOIN chapter c ON c.id = n.chapter_id"
         " JOIN subject s ON s.id = c.subject_id WHERE n.id = ?",
@@ -348,7 +387,94 @@ def _to_ask(connection: sqlite3.Connection, question: Question) -> QuestionToAsk
         resource_id,
         question.first_page,
         question.last_page,
+        _exercise_view(connection, question, in_review),
     )
+
+
+def _exercise_view(
+    connection: sqlite3.Connection, question: Question, in_review: bool
+) -> ExerciseView | None:
+    if question.exercise is None:
+        return None
+    steps = question.content["steps"]
+    given = [step["text"] for step in steps if step["given"]]
+    worked = (
+        _worked_example(connection, question.notion_id)
+        if in_review and question.exercise == "solo"
+        else None
+    )
+    return ExerciseView(
+        question.exercise,
+        question.content.get("topic", ""),
+        given,
+        len(steps) - len(given),
+        worked,
+    )
+
+
+def _worked_example(
+    connection: sqlite3.Connection, notion_id: int
+) -> WorkedExample | None:
+    """The worked example of a notion, while it is offered with its solo problems:
+    until the last two of them are solved (R14)."""
+    solo_results = [
+        bool(correct)
+        for (correct,) in connection.execute(
+            "SELECT a.correct FROM answer a JOIN question q ON q.id = a.question_id"
+            " WHERE q.notion_id = ? AND q.exercise = 'solo'"
+            " ORDER BY a.answered_at, a.id",
+            (notion_id,),
+        )
+    ]
+    if not offers_worked_example(solo_results):
+        return None
+    worked = next(
+        (
+            e
+            for e in get_exercises(connection, notion_id)
+            if e.exercise == "worked" and not e.reported
+        ),
+        None,
+    )
+    if worked is None:
+        return None
+    return WorkedExample(
+        worked.statement, [step["text"] for step in worked.content["steps"]]
+    )
+
+
+def _exercise_step(connection: sqlite3.Connection, notion_id: int) -> list[Question]:
+    """The exercises of the step of a notion (R14): its worked example, its problem to
+    complete, then its first solo problem; the other solo problems come back in the
+    reviews. Those reported are left out."""
+    exercises = [e for e in get_exercises(connection, notion_id) if not e.reported]
+    return [
+        exercise
+        for kind in ("worked", "completion", "solo")
+        for exercise in [next((e for e in exercises if e.exercise == kind), None)]
+        if exercise is not None
+    ]
+
+
+def _date_solo_problems(
+    connection: sqlite3.Connection, notion_id: int, now: datetime
+) -> None:
+    """At the end of a notion, its solo problems not done yet come back the next day:
+    those beyond its exercise step, or not reached in time (R14)."""
+    for exercise in get_exercises(connection, notion_id):
+        if exercise.exercise != "solo" or exercise.reported:
+            continue
+        if get_card(connection, exercise.id) is not None:
+            continue  # answered in the exercise step
+        graded = connection.execute(
+            "SELECT 1 FROM grading WHERE question_id = ? AND seconds IS NOT NULL"
+            " AND status != 'failed'",
+            (exercise.id,),
+        ).fetchone()
+        if graded is None:  # not answered while Claude grades it
+            save_card(
+                connection, Card(card_id=exercise.id, due=now + timedelta(days=1))
+            )
 
 
 def _warmup(connection: sqlite3.Connection, notion_id: int) -> QuestionToAsk | None:

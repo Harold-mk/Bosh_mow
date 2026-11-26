@@ -9,7 +9,11 @@ from typing import Literal
 from fsrs import Card, State
 
 from bosh_mow.study.days import DaySession, SessionKind
-from bosh_mow.study.queue import DueQuestion
+from bosh_mow.study.queue import (
+    SECONDS_PER_EXERCISE,
+    SECONDS_PER_QUESTION,
+    DueQuestion,
+)
 
 type Confidence = Literal["sure", "hesitant", "guess"]  # sûr, hésitant, au hasard (R6)
 
@@ -137,10 +141,11 @@ def day_sessions(connection: sqlite3.Connection) -> list[DaySession]:
 
 def due_questions(connection: sqlite3.Connection, now: datetime) -> list[DueQuestion]:
     """The questions due by `now` in the active subjects, except the reported ones and
-    those whose answer, already given, waits for its grading by Claude (T6)."""
+    those whose answer, already given, waits for its grading by Claude (T6). A solo
+    problem (T3) takes the time of several questions."""
     rows = connection.execute(
         """
-        SELECT c.question_id, s.id, c.due
+        SELECT c.question_id, s.id, c.due, q.exercise IS NOT NULL
         FROM card c
         JOIN question q ON q.id = c.question_id
         JOIN notion n ON n.id = q.notion_id
@@ -149,15 +154,20 @@ def due_questions(connection: sqlite3.Connection, now: datetime) -> list[DueQues
         WHERE s.status = 'active' AND q.reported_at IS NULL AND c.due <= ?
           AND NOT EXISTS (
             SELECT 1 FROM grading g
-            WHERE g.question_id = q.id AND g.confidence IS NOT NULL
+            WHERE g.question_id = q.id AND g.seconds IS NOT NULL
               AND g.recorded_at IS NULL AND g.status != 'failed'
           )
         """,
         (_iso(now),),
     ).fetchall()
     return [
-        DueQuestion(question_id, subject_id, _moment(due))
-        for question_id, subject_id, due in rows
+        DueQuestion(
+            question_id,
+            subject_id,
+            _moment(due),
+            SECONDS_PER_EXERCISE if exercise else SECONDS_PER_QUESTION,
+        )
+        for question_id, subject_id, due, exercise in rows
     ]
 
 

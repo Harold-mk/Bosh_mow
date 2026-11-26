@@ -171,6 +171,73 @@ def test_t6_when_both_fail_claudes_failure_is_reported(tmp_path: Path) -> None:
         grade_with_fallback(claude, local)(WHY, ANSWER)
 
 
+# A written answer to an exercise (T3): the steps to do, each worth its points
+
+EXERCISE = OpenQuestion.of(
+    "Why does the sample variance divide by n - 1 and not by n?",
+    {
+        "topic": "Explaining the n - 1 of the sample variance",
+        "steps": [
+            {
+                "text": "The deviations are taken from the sample mean.",
+                "points": 1,
+                "given": True,
+            },
+            {
+                "text": "The sample mean is closer to the data than the true mean.",
+                "points": 1,
+                "given": False,
+            },
+            {
+                "text": "So dividing by n underestimates the variance.",
+                "points": 3,
+                "given": False,
+            },
+            {
+                "text": "Dividing by n - 1 gives an unbiased estimator.",
+                "points": 1,
+                "given": False,
+            },
+        ],
+        "expected_answer": "Dividing by n - 1 corrects the bias of dividing by n.",
+    },
+)
+
+
+def test_the_steps_left_to_the_student_are_the_criteria_of_an_exercise() -> None:
+    assert EXERCISE.criteria == [
+        "The sample mean is closer to the data than the true mean.",
+        "So dividing by n underestimates the variance.",
+        "Dividing by n - 1 gives an unbiased estimator.",
+    ]
+    assert EXERCISE.points == [1, 3, 1]
+    assert len(EXERCISE.solution) == 4  # the step given too, to read after
+
+
+@pytest.mark.parametrize(
+    ("met", "right"),
+    [
+        ((True, True, True), True),
+        ((False, True, True), True),  # a step missed, but 4 points out of 5: 80 %
+        ((True, False, True), False),  # 2 points out of 5
+        ((True, True, False), False),  # 4 out of 5, but the result is wrong
+    ],
+)
+def test_t6_an_exercise_is_concluded_with_its_rubric(
+    tmp_path: Path, met: tuple[bool, ...], right: bool
+) -> None:
+    gateway, engine = fake(tmp_path, graded(*met))
+
+    grading = grade_open(gateway, EXERCISE, "Dividing by n is biased, n - 1 is not.")
+
+    assert grading.correct is right
+    (sent,) = engine.prompts
+    assert sent.startswith("# T6: grade the written answer to an exercise")
+    assert '"points": 3' in sent  # the rubric goes with the steps to check
+    # The whole solution, the step given too.
+    assert "The deviations are taken from the sample mean." in sent
+
+
 def test_the_question_to_grade_comes_from_an_open_question() -> None:
     content = {
         "expected_answer": WHY.expected_answer,
