@@ -8,10 +8,10 @@ SQLite), React + TypeScript and pywebview. Spaced repetition uses
 [FSRS](https://github.com/open-spaced-repetition/py-fsrs); the AI features use Claude
 (through Claude Code) and a local model with Ollama.
 
-> **Status:** early development. The first two parts are ready: setting up a subject from
-> its files, then studying it with questions written by Claude and reviewed with spaced
-> repetition. The other kinds of questions with their grading, exercises and exams come
-> next.
+> **Status:** early development. The first three parts are ready: setting up a subject from
+> its files, studying it with questions written by Claude and reviewed with spaced
+> repetition, and grading every kind of answer, by the code or by Claude. Exercises and
+> exams come next.
 
 ## What it does today
 
@@ -44,14 +44,14 @@ SQLite), React + TypeScript and pywebview. Spaced repetition uses
   chapter is prepared when you start the last prepared one, or when you ask for it.
   "Signaler" removes a wrong question.
 - **The daily review:** the questions due today, mixing your subjects, in a 15-minute
-  full-screen session. Each answer is graded by the code, without AI, and you say how sure
-  you were ("Sûr", "Hésitant", "Au hasard"): both set the next review date with FSRS. A
-  missed question comes back later in the session; what is left after 15 minutes waits for
-  the next day.
+  full-screen session. You say how sure you were of each answer ("Sûr", "Hésitant", "Au
+  hasard"): with its grading, this sets the next review date with FSRS. A missed question
+  comes back later in the session; what is left after 15 minutes waits for the next day.
 - **A new notion:** after the review, the next notion of the subject whose exam is closest:
   a warm-up question on a notion already learned, two pretest questions, a guided reading
   of its pages (the text is hidden after 10 minutes: you look for the answers from memory),
-  a test of three questions, then a 5-minute break before the next notion.
+  a test of its five review questions, the "why?" one last, then a 5-minute break before
+  the next notion.
 - **Focus:** a "Ne pas déranger" check and full screen before each session, a parking for
   passing thoughts (P key) sorted at the end, and "J'ai décroché" when your mind wanders.
 - **Home:** the session of the day, the questions due today and your successful days, the
@@ -63,11 +63,28 @@ SQLite), React + TypeScript and pywebview. Spaced repetition uses
   zoom, opened from a subject or a chapter. From a correction ("Voir le cours") or the
   guided reading, it opens at the right page over the session, which waits underneath.
 
-For now, sessions ask only the multiple-choice questions; the other kinds (a value, a short
-answer, "why?") arrive with their grading.
+### Grading
 
-Coming next: grading of the other kinds of questions, exercises, exams, statistics, planning,
-translation and an assistant in the reader.
+- **Without AI, at once:** multiple-choice questions, values and short answers are graded by
+  the code. A value is right within the tolerance of its question, written with a comma or
+  a point, as a fraction, or with its unit. A short answer is compared without case,
+  accents or punctuation, with one typo tolerated, except on a digit and in an answer under
+  4 characters ("n-1" is not "n-2").
+- **Open answers, by Claude:** Entrée sends your answer to Claude, which grades it while you
+  choose your confidence: each criterion of the question met or not, with a sentence, then
+  a comment and the model answer. The app gives the verdict: right when every criterion is
+  met. After 15 seconds of waiting, the session goes on, and the grading shows at the end.
+- **"Je pense avoir juste":** a value or a short answer that the code found wrong goes to
+  Claude in the background. If Claude agrees, the answer becomes right in the history, the
+  question is rescheduled, and your wording is accepted from then on.
+- **Without Claude:** a local model, Qwen 3.5 4B with Ollama, grades open answers instead,
+  provisionally. Claude checks those gradings when it is back, and corrects the history if
+  it disagrees.
+- **End of session:** the questions to review, the mistakes made while sure first, and the
+  gradings that came after their question was left.
+
+Coming next: exercises, exams, statistics, planning, translation and an assistant in the
+reader.
 
 ## How it works
 
@@ -81,6 +98,11 @@ translation and an assistant in the reader.
   call that runs too long is tried once more, then its task is reported as failed.
 - A chapter is prepared in short calls: its notions first, then, once you validate them,
   the questions of each notion, one call per notion.
+- An open answer is graded in its own thread as soon as it is sent, never behind a
+  background task. When Claude cannot answer, the local model grades it through the local
+  API of Ollama, with the same prompt and the same checks.
+- When a verdict changes after the fact (a claim accepted, a provisional grading
+  overruled), the question is rescheduled by replaying all its answers with FSRS.
 - Each AI task has a versioned prompt in [`prompts/`](prompts), a Pydantic output schema
   and automatic checks. The tests never call an AI: they use a fake one.
 - The reader draws only the PDF pages near the screen, so that a long book stays light.
@@ -91,7 +113,9 @@ translation and an assistant in the reader.
 - Python 3.12 or newer
 - Node.js 22.22 or newer
 - [Claude Code](https://claude.com/claude-code), signed in with a Claude subscription, for
-  the AI features. Later versions will also use [Ollama](https://ollama.com).
+  the AI features.
+- Optional: [Ollama](https://ollama.com) with the `qwen3.5:4b` model, which grades open
+  answers when Claude is unavailable.
 
 ## Getting started
 
