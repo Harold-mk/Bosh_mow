@@ -2,13 +2,28 @@
 
 from datetime import UTC, datetime, timedelta
 
-from bosh_mow.study.queue import QUESTIONS_PER_SESSION, DueQuestion, daily_queue
+from bosh_mow.study.queue import (
+    QUESTIONS_PER_SESSION,
+    SECONDS_PER_EXERCISE,
+    DueQuestion,
+    daily_queue,
+)
 
 NOW = datetime(2026, 11, 24, 18, 0, tzinfo=UTC)
 
 
 def due(question_id: int, subject_id: int, minutes_ago: int) -> DueQuestion:
     return DueQuestion(question_id, subject_id, NOW - timedelta(minutes=minutes_ago))
+
+
+def exercise(question_id: int, subject_id: int, minutes_ago: int) -> DueQuestion:
+    """A solo problem due (T3): about 3 minutes."""
+    return DueQuestion(
+        question_id,
+        subject_id,
+        NOW - timedelta(minutes=minutes_ago),
+        SECONDS_PER_EXERCISE,
+    )
 
 
 def test_only_the_questions_due_now_are_asked() -> None:
@@ -44,6 +59,27 @@ def test_r12_the_queue_fits_in_about_15_minutes() -> None:
 
     assert len(queue) == QUESTIONS_PER_SESSION
     assert set(queue) == set(range(41 - QUESTIONS_PER_SESSION, 41))  # the most urgent
+
+
+def test_r12_an_exercise_takes_the_time_of_several_questions() -> None:
+    exercises = [exercise(n, 1, 100 + n) for n in range(1, 5)]  # the most urgent
+    questions = [due(n, 2, n) for n in range(5, 20)]
+
+    queue = daily_queue(exercises + questions, NOW)
+
+    # 4 exercises (12 minutes) leave room for the 5 most urgent questions (3 minutes).
+    assert sorted(queue) == [1, 2, 3, 4, 15, 16, 17, 18, 19]
+
+
+def test_r12_an_exercise_that_no_longer_fits_waits_for_a_question() -> None:
+    questions = [due(n, 1, 100 + n) for n in range(1, 25)]  # 14 min 24 s
+    late = [exercise(25, 2, 50), due(26, 2, 10)]
+
+    queue = daily_queue(questions + late, NOW)
+
+    assert 25 not in queue  # 3 minutes do not fit in the 36 s left
+    assert 26 in queue
+    assert len(queue) == QUESTIONS_PER_SESSION
 
 
 def test_r27_after_an_absence_the_queue_is_not_longer() -> None:

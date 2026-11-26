@@ -27,10 +27,11 @@ class PastAnswer:
 
 
 def rating(correct: bool, confidence: Confidence | None) -> Rating:
-    """The FSRS rating of an answer. A right answer given at random is "hard"; a right
-    one given with confidence is "good", never "easy", so that intervals do not grow
-    too fast."""
-    if not correct or confidence is None:  # None: "Je ne sais pas"
+    """The FSRS rating of an answer. A wrong one, or "Je ne sais pas", is "again"; a
+    right answer given at random is "hard"; a right one given with confidence is
+    "good", never "easy", so that intervals do not grow too fast. An exercise asks no
+    confidence: right, it is "good"."""
+    if not correct:
         return Rating.Again
     return Rating.Hard if confidence == "guess" else Rating.Good
 

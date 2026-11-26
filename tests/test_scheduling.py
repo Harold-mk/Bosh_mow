@@ -18,7 +18,8 @@ STEADY = Scheduler(enable_fuzzing=False)  # no random spread of the intervals in
     ("correct", "confidence", "expected"),
     [
         (False, "sure", Rating.Again),
-        (False, None, Rating.Again),  # "Je ne sais pas"
+        (False, None, Rating.Again),  # "Je ne sais pas", or an exercise missed
+        (True, None, Rating.Good),  # an exercise: no confidence is asked
         (True, "guess", Rating.Hard),
         (True, "hesitant", Rating.Good),
         (True, "sure", Rating.Good),  # not Easy: intervals do not grow too fast
